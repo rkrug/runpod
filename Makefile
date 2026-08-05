@@ -23,7 +23,7 @@ endif
 VERSION  ?= v0.1.0
 TEI_TAG  ?= 89-1.5
 PLATFORM ?= linux/amd64
-IMAGE_SOURCE_URL ?= https://github.com/CHANGE_ME/runpod
+IMAGE_SOURCE_URL ?= https://github.com/rkrug/runpod
 # Empty = use the Dockerfile default (deberta-v3-large-zeroshot-v2.0).
 # Override to bake a different model, e.g.:
 #   make docker-nli NLI_MODEL=MoritzLaurer/deberta-v3-base-zeroshot-v2.0

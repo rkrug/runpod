@@ -24,7 +24,7 @@ FROM pytorch/pytorch:2.3.1-cuda12.1-cudnn8-runtime AS runtime
 
 # Override at build time so a consuming project's fork links its GHCR
 # package back to its own fork instead of this repo.
-ARG IMAGE_SOURCE_URL=https://github.com/CHANGE_ME/runpod
+ARG IMAGE_SOURCE_URL=https://github.com/rkrug/runpod
 ARG IMAGE_DESCRIPTION="Zero-shot NLI server for RunPod."
 LABEL org.opencontainers.image.source=${IMAGE_SOURCE_URL} \
       org.opencontainers.image.description=${IMAGE_DESCRIPTION}

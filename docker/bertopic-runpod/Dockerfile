@@ -116,7 +116,7 @@ EXPOSE 22
 
 # Override at build time so a consuming project's fork links its GHCR
 # package back to its own fork instead of this repo.
-ARG IMAGE_SOURCE_URL=https://github.com/CHANGE_ME/runpod
+ARG IMAGE_SOURCE_URL=https://github.com/rkrug/runpod
 ARG IMAGE_DESCRIPTION="BERTopic GPU image (cuml + bertopic) for RunPod, with sshd + idle-watchdog."
 LABEL org.opencontainers.image.source=${IMAGE_SOURCE_URL} \
       org.opencontainers.image.description=${IMAGE_DESCRIPTION}

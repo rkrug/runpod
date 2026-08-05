@@ -64,7 +64,7 @@ ARG ADAPTER
 # Override at build time (--build-arg IMAGE_SOURCE_URL=... --build-arg
 # IMAGE_DESCRIPTION=...) so a consuming project's fork of this image links
 # its GHCR package back to its own fork instead of this repo.
-ARG IMAGE_SOURCE_URL=https://github.com/CHANGE_ME/runpod
+ARG IMAGE_SOURCE_URL=https://github.com/rkrug/runpod
 ARG IMAGE_DESCRIPTION="TEI server with merged SPECTER2 adapter, ready for RunPod."
 LABEL org.opencontainers.image.source=${IMAGE_SOURCE_URL} \
       org.opencontainers.image.description=${IMAGE_DESCRIPTION}
