@@ -78,6 +78,18 @@ scripts/runpod/stop_pods.sh
 
 See [`docs/RunPodSetup.md`](docs/RunPodSetup.md) for a fuller walkthrough.
 
+## Testing
+
+```bash
+test/smoke-test.sh
+```
+
+Runs `shellcheck`, builds every image under `docker/`, runs an entrypoint
+smoke test for each where one exists, exercises `scripts/runpod/http-pool/`
+against a throwaway local server, and validates `create_pods.sh`/
+`stop_pods.sh` argument handling and every `pods.conf.*.example` template.
+No RunPod account or GPU needed. See [`test/README.md`](test/README.md).
+
 ## Using this repo from another project
 
 Nothing here assumes a specific caller. A consuming project should:

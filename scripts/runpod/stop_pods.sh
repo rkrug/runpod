@@ -67,7 +67,8 @@ else
     exit 1
   fi
   USED_CSV=1
-  while IFS=, read -r id name host; do
+  # shellcheck disable=SC2034  # host/port are CSV columns this script doesn't need, just skips past
+  while IFS=, read -r id name host port; do
     [[ "${id}" == "id" ]] && continue   # skip header
     [[ -z "${id}" ]] && continue
     POD_IDS+=("${id}")

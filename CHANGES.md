@@ -34,3 +34,8 @@ version history.
   `scripts/runpod/http-pool/` to reflect that. `bertopic-runpod` doesn't fit
   this pair at all (SSH-only, no HTTP endpoint) — it already has its own
   analogous tools (`pod_watch.sh`/`pod_log_tail.sh`).
+- Added `test/smoke-test.sh`, formalizing the manual verification run while
+  building this repo (shellcheck, per-image builds + entrypoint smoke tests,
+  http-pool functional checks, pod-lifecycle argument/config validation)
+  into a single repeatable script with no RunPod account or GPU required.
+- Added `CLAUDE.md`.
