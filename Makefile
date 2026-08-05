@@ -24,6 +24,10 @@ VERSION  ?= v0.1.0
 TEI_TAG  ?= 89-1.5
 PLATFORM ?= linux/amd64
 IMAGE_SOURCE_URL ?= https://github.com/CHANGE_ME/runpod
+# Empty = use the Dockerfile default (deberta-v3-large-zeroshot-v2.0).
+# Override to bake a different model, e.g.:
+#   make docker-nli NLI_MODEL=MoritzLaurer/deberta-v3-base-zeroshot-v2.0
+NLI_MODEL ?=
 
 .PHONY: docker-tei-build docker-tei-push docker-tei \
         docker-bertopic-build docker-bertopic-push docker-bertopic \
@@ -57,8 +61,10 @@ docker-bertopic-push: ## Push the BERTopic RunPod image to the registry
 
 docker-bertopic: docker-bertopic-build docker-bertopic-push
 
-docker-nli-build: ## Build the NLI RunPod image
-	docker buildx build --platform $(PLATFORM) -t $(REGISTRY)/nli-runpod:$(VERSION) \
+docker-nli-build: ## Build the NLI RunPod image (NLI_MODEL=... to override the baked model)
+	docker buildx build --platform $(PLATFORM) \
+	    $(if $(NLI_MODEL),--build-arg NLI_MODEL=$(NLI_MODEL),) \
+	    -t $(REGISTRY)/nli-runpod:$(VERSION) \
 	    --build-arg IMAGE_SOURCE_URL=$(IMAGE_SOURCE_URL) \
 	    -f docker/nli-runpod/Dockerfile .
 
