@@ -83,12 +83,12 @@ scripts/runpod/pod_watch.sh            # live CPU/GPU polling + PNG plot
 scripts/runpod/pod_log_tail.sh python  # tail the GPU script's own log
 ```
 
-For HTTP pool images (e.g. running several `nli-runpod` pods), use the
-URL-driven companions instead:
+For HTTP-based images (e.g. running several `nli-runpod` or `tei-runpod`
+pods), use the URL-driven companions instead:
 
 ```bash
-scripts/runpod/nli/watch_gpu.sh -u https://<host1> -u https://<host2>
-scripts/runpod/nli/keep_alive.sh -u https://<host1> --loop 240
+scripts/runpod/http-pool/watch_gpu.sh -u https://<host1> -u https://<host2>
+scripts/runpod/http-pool/keep_alive.sh -u https://<host1> --loop 240
 ```
 
 ## 7. Tear down

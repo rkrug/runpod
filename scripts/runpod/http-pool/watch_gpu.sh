@@ -1,35 +1,53 @@
 #!/usr/bin/env bash
-# Live per-host throughput dashboard for a pool of nli-runpod hosts.
+# Live per-host throughput dashboard for a pool of HTTP-based RunPod hosts
+# (tei-runpod, nli-runpod — anything exposing a monotonic request counter
+# at /metrics). Not applicable to docker/bertopic-runpod/, which has no HTTP
+# endpoint at all; use scripts/runpod/pod_watch.sh for that image instead.
 #
-# The NLI server does not expose a GPU-utilization percentage — it exposes a
-# cumulative "sequences classified" counter at /metrics (nli_request_count).
+# These images don't expose a GPU-utilization percentage — each exposes a
+# cumulative request counter at /metrics (nli-runpod: nli_request_count;
+# tei-runpod: te_request_count, spread across several Prometheus lines).
 # This script polls that counter on every host and reports the DELTA per
-# interval as pairs/sec, which is the directly useful proxy for "is this GPU
+# interval as a rate, which is the directly useful proxy for "is this GPU
 # busy": a host doing real work shows a positive rate; an idle/starved host
-# shows 0.0. Polling /metrics (a GET) does NOT reset the idle watchdog — only
-# /classify does — so this is safe to run alongside scoring and keep_alive.sh.
+# shows 0.0. Polling /metrics (a GET) does NOT reset any idle watchdog —
+# only a real work request does — so this is safe to run alongside
+# keep_alive.sh or a real workload.
 #
 # Hosts are passed in directly — this script has no knowledge of any
-# project's own config format. If your project keeps its NLI host(s) in its
-# own config file, write a small wrapper there that extracts the URL(s) and
+# project's own config format. If your project keeps its host(s) in its own
+# config file, write a small wrapper there that extracts the URL(s) and
 # calls this script with -u.
 #
 # Usage:
-#   scripts/runpod/nli/watch_gpu.sh -u https://<pod-id>-8080.proxy.runpod.net
-#   scripts/runpod/nli/watch_gpu.sh -u <url1> -u <url2>       # pool of hosts
-#   scripts/runpod/nli/watch_gpu.sh --url-file hosts.txt -n 10
-#   scripts/runpod/nli/watch_gpu.sh -u <url> --once            # single snapshot
+#   # nli-runpod (default metric):
+#   scripts/runpod/http-pool/watch_gpu.sh -u https://<pod-id>-8080.proxy.runpod.net
+#
+#   # tei-runpod (override the counter name):
+#   scripts/runpod/http-pool/watch_gpu.sh -u https://<pod-id>-8080.proxy.runpod.net \
+#       --metric te_request_count --unit embeds/s
+#
+#   scripts/runpod/http-pool/watch_gpu.sh -u <url1> -u <url2>       # pool of hosts
+#   scripts/runpod/http-pool/watch_gpu.sh --url-file hosts.txt -n 10
+#   scripts/runpod/http-pool/watch_gpu.sh -u <url> --once            # single snapshot
 set -euo pipefail
 
 usage() {
   cat <<'EOF'
 Usage: watch_gpu.sh (-u <url>)... | --url-file <file> [-n <seconds>] [--once]
+                    [--metric <name>] [--unit <label>] [--peak <n>]
 
-  -u <url>          Base URL of an nli-runpod host. Repeatable for multiple hosts.
+  -u <url>          Base URL of a pod. Repeatable for multiple hosts.
   --url-file <file> Newline-delimited file of base URLs (alternative to -u).
   -n <seconds>      Refresh interval (default: 5).
   --once            Print one snapshot and exit (rates need >=2 passes, so the
                     first pass shows totals only).
+  --metric <name>   /metrics counter to watch (default: nli_request_count).
+                    Matches any line starting with <name>, excluding _bucket/
+                    _sum suffixes, and sums them — same convention as this
+                    repo's idle watchdogs (e.g. te_request_count for tei-runpod).
+  --unit <label>    Display label for the rate (default: req/s).
+  --peak <n>        Rate that fills a per-host throughput bar (default: 25).
   --no-color        Disable ANSI colour output.
   -h                Show this help.
 EOF
@@ -40,7 +58,9 @@ URL_FILE=""
 INTERVAL=5
 ONCE=0
 NOCOLOR="${NOCOLOR:-0}"
-BAR_PEAK=25   # seqs/sec that fills a per-host throughput bar (~one L4 at peak)
+METRIC="nli_request_count"
+UNIT="req/s"
+BAR_PEAK=25
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -48,6 +68,9 @@ while [[ $# -gt 0 ]]; do
     --url-file) URL_FILE="$2"; shift 2 ;;
     -n) INTERVAL="$2"; shift 2 ;;
     --once) ONCE=1; shift ;;
+    --metric) METRIC="$2"; shift 2 ;;
+    --unit) UNIT="$2"; shift 2 ;;
+    --peak) BAR_PEAK="$2"; shift 2 ;;
     --no-color) NOCOLOR=1; shift ;;
     -h) usage; exit 0 ;;
     *) echo "error: unknown argument '$1'" >&2; usage; exit 1 ;;
@@ -90,9 +113,9 @@ label_of() {
 # ── Colours (disabled if not a TTY, --no-color, or under --once) ─────────────
 if [[ "${ONCE}" -eq 0 && -t 1 && "${NOCOLOR}" -eq 0 ]]; then
   C0=$'\033[0m'; CB=$'\033[1m'; CDIM=$'\033[2m'
-  CG=$'\033[32m'; CY=$'\033[33m'; CR=$'\033[31m'; CC=$'\033[36m'; CGREY=$'\033[90m'
+  CG=$'\033[32m'; CR=$'\033[31m'; CC=$'\033[36m'; CGREY=$'\033[90m'
 else
-  C0=""; CB=""; CDIM=""; CG=""; CY=""; CR=""; CC=""; CGREY=""
+  C0=""; CB=""; CDIM=""; CG=""; CR=""; CC=""; CGREY=""
 fi
 # Cursor control for flicker-free in-place refresh (TTY, looping mode only):
 # home the cursor, erase each line to its end (EOL), erase below the block (EOS).
@@ -112,11 +135,15 @@ make_bar() {
   }'
 }
 
-# Fetch nli_request_count for a base URL; echoes the integer, or "" on failure.
+# Fetch the configured --metric counter for a base URL; echoes the summed
+# integer, or "" on failure. Sums every matching, non-histogram-bucket/-sum
+# line so this works whether the target exposes one synthetic counter line
+# (nli-runpod) or several real Prometheus lines for the same family
+# (tei-runpod's te_request_count).
 fetch_count() {
   local base="$1"
   curl -sS --max-time 15 "${base}/metrics" 2>/dev/null \
-    | awk '/^nli_request_count/ {print $2; exit}'
+    | awk -v m="^${METRIC}" '$0 ~ m && !/_bucket|_sum/ {sum += $NF} END {print (NR>0 && sum != "") ? sum+0 : ""}'
 }
 
 # Parallel indexed arrays for previous counts; single previous timestamp.
@@ -131,9 +158,9 @@ pass() {
   if [[ -n "${PREV_T}" ]]; then elapsed=$((now - PREV_T)); fi
 
   printf '%s' "${CUP}"
-  printf '%s NLI POOL %s%s· %s hosts · %s %s(refresh %ss)%s%s\n' \
-    "${CB}${CC}" "${C0}" "${CDIM}" "${N}" "$(date '+%H:%M:%S')" "${CGREY}" "${INTERVAL}" "${C0}" "${EOL}"
-  printf '%s%s%s\n' "${CGREY}" "  host              seqs/s   throughput             state" "${C0}${EOL}"
+  printf '%s HTTP POOL %s%s· %s hosts · metric=%s · %s %s(refresh %ss)%s%s\n' \
+    "${CB}${CC}" "${C0}" "${CDIM}" "${N}" "${METRIC}" "$(date '+%H:%M:%S')" "${CGREY}" "${INTERVAL}" "${C0}" "${EOL}"
+  printf '%s%s%-8s%s%s\n' "${CGREY}" "  host              " "${UNIT}" "   throughput             state" "${C0}${EOL}"
 
   total_rate=0
   active=0
@@ -177,8 +204,8 @@ pass() {
   done
 
   if [[ -n "${PREV_T}" && "${elapsed}" -gt 0 ]]; then
-    printf '  %spool%s %s%s%s seqs/s%s · %s%s/%s%s busy%s\n' \
-      "${CGREY}" "${C0}" "${CB}" "${total_rate}" "${C0}" "" \
+    printf '  %spool%s %s%s%s%s · %s%s/%s%s busy%s\n' \
+      "${CGREY}" "${C0}" "${CB}" "${total_rate}" "${C0}" " ${UNIT}" \
       "${CB}" "${active}" "${N}" "${C0}" "${EOL}"
   else
     printf '  %s(rates appear after the next pass)%s%s\n' "${CDIM}" "${C0}" "${EOL}"

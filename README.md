@@ -44,9 +44,10 @@ for full usage:
 - `stop_pods.sh` — stop or permanently delete pods.
 - `pod_watch.sh` / `pod_log_tail.sh` — live CPU/GPU monitoring and log tailing
   for the SSH-based bertopic pod.
-- `nli/keep_alive.sh` / `nli/watch_gpu.sh` — pool-monitoring companions for
-  HTTP-based pods like `nli-runpod` (URL-driven, not tied to any project's
-  config format).
+- `http-pool/keep_alive.sh` / `http-pool/watch_gpu.sh` — pool-monitoring
+  companions for any HTTP-based pod (`tei-runpod`, `nli-runpod`; not
+  `bertopic-runpod`, which is SSH-only), URL-driven and not tied to any
+  project's config format.
 - `config/` — `pods.conf.*.example` templates, one per image. Copy one to
   `config/pods.conf`, edit, and run `create_pods.sh`.
 

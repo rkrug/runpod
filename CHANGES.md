@@ -24,6 +24,13 @@ version history.
   image's own `docker/<image>/` directory, and `scripts/runpod/` holds only
   pod-lifecycle management scripts. Moved `pods.conf.*` templates into
   `scripts/runpod/config/`.
-- Decoupled `scripts/runpod/nli/keep_alive.sh` and `watch_gpu.sh` from a
-  specific project's `config.yaml` schema — they now take plain URLs via
-  `-u`/`--url-file` instead of parsing a project's YAML config.
+- Decoupled `keep_alive.sh` and `watch_gpu.sh` from a specific project's
+  `config.yaml` schema — they now take plain URLs via `-u`/`--url-file`
+  instead of parsing a project's YAML config. Further generalized both from
+  nli-runpod-only to any HTTP-based image (tei-runpod or nli-runpod): the
+  work-request path/body (`keep_alive.sh`) and the `/metrics` counter name
+  (`watch_gpu.sh`) are now flags rather than hardcoded to nli-runpod's
+  `/classify` contract, and the pair moved from `scripts/runpod/nli/` to
+  `scripts/runpod/http-pool/` to reflect that. `bertopic-runpod` doesn't fit
+  this pair at all (SSH-only, no HTTP endpoint) — it already has its own
+  analogous tools (`pod_watch.sh`/`pod_log_tail.sh`).

@@ -120,8 +120,23 @@ Both tee their output to a timestamped file under `output/pod_logs/`
 pod is evicted or SSH drops. These two scripts are specific to the SSH-based
 bertopic pod; the NLI and TEI pods are HTTP services with no SSH access, so
 their idle activity is instead visible via each pod's own `/metrics`
-endpoint (see `scripts/runpod/nli/` for NLI-specific pool-monitoring
-companions).
+endpoint.
+
+## Watching HTTP-based pods (TEI, NLI)
+
+`http-pool/watch_gpu.sh` and `http-pool/keep_alive.sh` work with any
+HTTP-based image in this repo, driven entirely by the URLs you pass in
+(not tied to any project's config format):
+
+```bash
+scripts/runpod/http-pool/watch_gpu.sh -u https://<host>       # nli-runpod (default metric)
+scripts/runpod/http-pool/watch_gpu.sh -u https://<host> --metric te_request_count --unit embeds/s  # tei-runpod
+
+scripts/runpod/http-pool/keep_alive.sh -u https://<host> --loop 240                       # nli-runpod (default path/body)
+scripts/runpod/http-pool/keep_alive.sh -u https://<host> --path /embed --body '{"inputs":"keepalive"}'  # tei-runpod
+```
+
+See each script's `-h` for the full flag set.
 
 ## Notes / things to verify against current RunPod docs
 
