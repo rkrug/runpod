@@ -15,9 +15,33 @@ __pycache__/
 *.pyc
 .Rhistory
 .RData
+.Rproj.user/
+
+# Python virtual environments (for local testing of the Python scripts
+# baked into docker/tei-runpod, docker/bertopic-runpod, docker/nli-runpod)
+.venv/
+venv/
+env/
+
+# Local secrets — RUNPOD_API_KEY etc. are meant to be exported in the shell,
+# never stored in a file, but ignore .env defensively in case one gets created.
+.env
+.env.*
+
+# Editor / IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
 
 # OS cruft
 .DS_Store
+._*
+.AppleDouble
+.LSOverride
+.Spotlight-V100
+.Trashes
 
 # Local agent/tooling session state
 .claude/
