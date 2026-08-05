@@ -1,0 +1,101 @@
+# Config for scripts/runpod/create_pods.sh — the BERTopic GPU pod
+# (docker/bertopic-runpod/). Copy to pods.conf and edit; pods.conf is
+# gitignored so local overrides never get committed. Values here are shell
+# variable assignments (sourced directly), not YAML.
+#
+# Usage:
+#   cp scripts/runpod/config/pods.conf.bertopic.example scripts/runpod/config/pods.conf
+#   export RUNPOD_API_KEY=...
+#   scripts/runpod/create_pods.sh -n 1
+#
+# Only ONE bertopic pod is typically needed at a time — an SSH-based
+# orchestrator drives a single ssh_host/ssh_port, not a pool. Prints an
+# `ssh_host:`/`ssh_port:` block to paste into your project's SSH-target
+# config.
+#
+# RUNPOD_API_KEY is NOT set here — export it in your shell before running the
+# script. It authenticates the pod-creation API call itself (this always needs
+# the raw key — RunPod Secrets are substituted inside a running pod, not in
+# requests to create one).
+
+# Bump the tag after rebuilding/pushing (see docker/bertopic-runpod/CHANGES.md
+# for the current version).
+IMAGE="ghcr.io/<you>/bertopic-runpod:v0.1.0"
+
+# GPU type id exactly as RunPod expects it. List available ids with:
+#   curl -s https://rest.runpod.io/v1/gpuTypes \
+#     -H "Authorization: Bearer $RUNPOD_API_KEY" | jq -r '.[].id'
+# L40S is the suggested GPU (docker/bertopic-runpod/README.md): 48 GB VRAM
+# comfortably fits cuml UMAP + HDBSCAN for a multi-million-row corpus.
+# cuml auto-selects CUDA kernels at runtime — no per-GPU image rebuild needed.
+GPU_TYPE_ID="NVIDIA L40S"
+GPU_COUNT=1
+
+# No HTTP service — the pod is reached over SSH (rsync + ssh-triggered runs
+# from your orchestrating script). RunPod assigns a public IP + mapped
+# external port for TCP-exposed ports; the script polls GET /pods/{id} for
+# both.
+POD_KIND="tcp"
+PORT=22
+
+# Disk sizing (GB) per docker/bertopic-runpod/README.md "Requirements":
+# container disk for image + scratch; volume at /work holds the embedding
+# parquets uploaded/read plus outputs/heartbeat/logs. Size to your corpus.
+CONTAINER_DISK_GB=25
+VOLUME_GB=60
+VOLUME_MOUNT_PATH="/work"
+
+# RunPod cloud tier. SECURE recommended for reliable public-IP assignment on
+# TCP ports. If you switch to COMMUNITY, also set SUPPORT_PUBLIC_IP=true below
+# (community pods aren't guaranteed a public IP otherwise).
+CLOUD_TYPE="SECURE"
+SUPPORT_PUBLIC_IP=false
+
+# CPU & RAM: docker/bertopic-runpod/README.md recommends 16+ vCPUs, 120GB+
+# system RAM (the clustering step holds the full embedding dataframe in CPU
+# memory before pushing to GPU). Verify the chosen GPU_TYPE_ID's default
+# instance shape meets this, or add a minimum-vCPU/RAM filter manually via
+# the RunPod console if pod creation lands on an undersized node.
+
+# Name prefix; pods are named "<prefix>-<timestamp>-01", ...
+POD_NAME_PREFIX="bertopic-runpod"
+
+# Idle watchdog settings (docker/bertopic-runpod/bertopic_idle_watchdog.sh),
+# passed into the pod's environment. Auto-stops the pod after IDLE_MIN
+# minutes with no heartbeat touch (see the image README's "Idle auto-stop").
+IDLE_MIN=5
+POLL_SEC=30
+
+# Value for the created pod's own RUNPOD_API_KEY env var (used internally by
+# the idle watchdog's self-stop REST call). Set to a RunPod Secret
+# reference so the raw key never leaves RunPod's secret store.
+POD_ENV_RUNPOD_API_KEY='{{ RUNPOD_SECRET_runpod_api_key }}'
+
+# Required extra env vars for this image (docker/bertopic-runpod/README.md):
+#   PUBLIC_KEY                  — your SSH public key, injected into
+#                                 /root/.ssh/authorized_keys at boot. Must
+#                                 match the private key your orchestrator
+#                                 connects with (default ~/.ssh/id_ed25519).
+#   <object-storage credentials> — whatever your project's run_bertopic_gpu.py
+#                                 cfg.r2 block needs to read embeddings +
+#                                 intermediate caches (e.g. R2_ACCESS_KEY_ID /
+#                                 R2_SECRET_ACCESS_KEY for Cloudflare R2).
+#
+# Left empty by default — uncomment and fill in your own values. Avoid
+# hardcoding a specific keyring/secret-manager entry name here; that's a
+# project-specific detail, not something this template should assume.
+EXTRA_ENV=(
+  # "PUBLIC_KEY=$(cat ~/.ssh/id_ed25519.pub 2>/dev/null)"
+  # "R2_ACCESS_KEY_ID=<your-access-key-id>"
+  # "R2_SECRET_ACCESS_KEY=<your-secret-access-key>"
+)
+
+# How long (seconds) to poll GET /pods/{id} for publicIp + portMappings
+# before giving up. Bertopic pods can take longer than TEI pods to schedule
+# (larger disk/RAM footprint), hence the higher default than the TEI template.
+HEALTH_TIMEOUT_SEC=420
+HEALTH_POLL_INTERVAL_SEC=10
+
+# Delay (seconds) between successive pod-creation calls when creating several
+# at once. Irrelevant at -n 1 but harmless to leave set.
+CREATE_DELAY_SEC=10

@@ -1,0 +1,20 @@
+# Local, filled-in pod configs (contain real image tags / GPU choices /
+# secrets references) — only the .example templates are tracked.
+scripts/runpod/config/pods.conf
+
+# Generated pod inventory — ephemeral, recreated by create_pods.sh, deleted
+# by stop_pods.sh. Contains real (if short-lived) pod ids/hosts.
+scripts/runpod/hosts.generated.csv
+scripts/runpod/hosts.generated.yaml
+
+# Local watch/log output (pod_watch.sh, pod_log_tail.sh)
+output/
+
+# Python / R build artifacts
+__pycache__/
+*.pyc
+.Rhistory
+.RData
+
+# OS cruft
+.DS_Store

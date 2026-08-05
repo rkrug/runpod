@@ -1,0 +1,72 @@
+# Generic template for scripts/runpod/create_pods.sh — a plain HTTP-service
+# pod pool, not tied to any specific image in this repo. For this repo's own
+# images, use pods.conf.tei.example, pods.conf.bertopic.example, or
+# pods.conf.nli.example instead — they're pre-filled for their respective
+# docker/*-runpod/ image.
+#
+# Copy to pods.conf and edit; pods.conf is gitignored so local overrides
+# never get committed. Values here are shell variable assignments (sourced
+# directly), not YAML.
+#
+# RUNPOD_API_KEY is NOT set here — export it in your shell before running the
+# script. It authenticates the pod-creation API call itself (this always needs
+# the raw key — RunPod Secrets are substituted inside a running pod, not in
+# requests to create one).
+#
+# By default the same raw key is also injected as each created pod's own
+# RUNPOD_API_KEY env var (used internally by the idle watchdog's self-stop
+# REST call). To avoid the raw key ever appearing in the API payload or in
+# hosts.generated.*, store it as a RunPod Secret (console -> Secrets) and
+# reference it instead via POD_ENV_RUNPOD_API_KEY below.
+
+# Image to run on every created pod.
+IMAGE="ghcr.io/<you>/<your-image>:<tag>"
+
+# GPU type id exactly as RunPod expects it. List available ids with:
+#   curl -s https://rest.runpod.io/v1/gpuTypes \
+#     -H "Authorization: Bearer $RUNPOD_API_KEY" | jq -r '.[].id'
+GPU_TYPE_ID="NVIDIA A100 80GB PCIe"
+GPU_COUNT=1
+
+# Container image port serving the app.
+POD_KIND="http"
+PORT=8080
+HEALTH_PATH="/health"
+
+# Disk sizing (GB).
+CONTAINER_DISK_GB=10
+VOLUME_GB=0
+VOLUME_MOUNT_PATH="/workspace"
+
+# RunPod cloud tier: SECURE (RunPod-operated DCs) or COMMUNITY (cheaper, less
+# guaranteed availability). Verify this field name/values against the current
+# RunPod API docs if pod creation fails with a cloudType error.
+CLOUD_TYPE="SECURE"
+
+# Name prefix; pods are named "<prefix>-<timestamp>-01", "<prefix>-<timestamp>-02", ...
+POD_NAME_PREFIX="runpod"
+
+# Idle watchdog settings, passed into each pod's environment.
+IDLE_MIN=5
+POLL_SEC=30
+
+# Value for the created pod's own RUNPOD_API_KEY env var. Leave unset to fall
+# back to the raw local RUNPOD_API_KEY (simplest, but the raw key ends up in
+# the API request body and hosts.generated.*). Set to a RunPod Secret
+# reference instead so the raw key never leaves RunPod's secret store —
+# RunPod substitutes the real value only when the pod boots.
+POD_ENV_RUNPOD_API_KEY='{{ RUNPOD_SECRET_runpod_api_key }}'
+
+# Extra env vars merged into every created pod, as "KEY=VALUE" strings.
+EXTRA_ENV=(
+  # "SOME_VAR=some_value"
+)
+
+# How long (seconds) to poll each new pod's /health before giving up.
+HEALTH_TIMEOUT_SEC=300
+HEALTH_POLL_INTERVAL_SEC=10
+
+# Delay (seconds) between successive pod-creation calls when creating several
+# at once. Staggers image pulls instead of N pods all pulling simultaneously.
+# Set to 0 to disable.
+CREATE_DELAY_SEC=10

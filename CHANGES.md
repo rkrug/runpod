@@ -1,0 +1,29 @@
+# runpod — CHANGES
+
+Repo-level changelog. See each `docker/<image>/CHANGES.md` for per-image
+version history.
+
+## v0.1.0 — initial unification
+
+- Extracted the newest versions of `docker/tei-runpod/`,
+  `docker/bertopic-runpod/`, and their shared `scripts/runpod/`
+  pod-lifecycle layer from the most advanced of several source repos where
+  this tooling had been developed and independently drifted.
+- Added `docker/nli-runpod/`, ported from a separate source repo — the only
+  place this workload previously existed — and fixed a live bug in its idle
+  watchdog in the process (it called `runpodctl stop pod` directly, which
+  fails under the pod's runtime environment; replaced with the same
+  RunPod-REST-API self-stop pattern already used by the other two images).
+- Generalized every image and script to remove hardcoded coupling to any
+  one source repo: OCI image-source labels are now build-arg driven, the
+  `Makefile`'s registry namespace has no default (must be set explicitly),
+  and `pods.conf` templates had project-specific values (registry
+  namespace, keyring entry names, SSH key paths) replaced with placeholders
+  or commented-out examples.
+- Reorganized `scripts/runpod/` so build-time image assets live inside each
+  image's own `docker/<image>/` directory, and `scripts/runpod/` holds only
+  pod-lifecycle management scripts. Moved `pods.conf.*` templates into
+  `scripts/runpod/config/`.
+- Decoupled `scripts/runpod/nli/keep_alive.sh` and `watch_gpu.sh` from a
+  specific project's `config.yaml` schema — they now take plain URLs via
+  `-u`/`--url-file` instead of parsing a project's YAML config.

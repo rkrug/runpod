@@ -1,0 +1,6 @@
+# Build context is the repo root, but we only need this image's own
+# directory. Everything else is excluded to keep context transfer small.
+**
+!docker/tei-runpod/prepare_specter2_merged.py
+!docker/tei-runpod/entrypoint.sh
+!docker/tei-runpod/tei_idle_watchdog.sh

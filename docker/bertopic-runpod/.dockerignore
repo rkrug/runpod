@@ -1,0 +1,7 @@
+# Build context is the repo root. We only need this image's own directory.
+# Keep the context tiny so docker doesn't ship gigabytes of unrelated data
+# to the daemon on every build.
+**
+!docker/bertopic-runpod/run_bertopic_gpu.py
+!docker/bertopic-runpod/entrypoint.sh
+!docker/bertopic-runpod/bertopic_idle_watchdog.sh
