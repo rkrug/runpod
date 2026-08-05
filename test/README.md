@@ -6,9 +6,9 @@ a Dockerfile, entrypoint, watchdog, or `scripts/runpod/` script — no RunPod
 account or GPU required.
 
 ```bash
-test/smoke-test.sh                # everything
-test/smoke-test.sh --skip-docker  # shellcheck + dry-run validation only (no docker needed)
-test/smoke-test.sh --skip-build   # smoke-test against already-built runpod-smoketest/* images
+make test                  # or: test/smoke-test.sh — everything
+make test-skip-docker      # shellcheck + dry-run validation only (no docker needed)
+make test-skip-build       # smoke-test against already-built runpod-smoketest/* images
 ```
 
 ## What it checks

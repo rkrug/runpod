@@ -81,7 +81,9 @@ See [`docs/RunPodSetup.md`](docs/RunPodSetup.md) for a fuller walkthrough.
 ## Testing
 
 ```bash
-test/smoke-test.sh
+make test                  # or: test/smoke-test.sh
+make test-skip-docker      # shellcheck + dry-run validation only, no docker needed
+make test-skip-build       # re-run smoke tests against already-built runpod-smoketest/* images
 ```
 
 Runs `shellcheck`, builds every image under `docker/`, runs an entrypoint

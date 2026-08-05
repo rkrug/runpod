@@ -63,10 +63,13 @@ here rather than assuming "run from repo root."
 ### Testing
 
 ```bash
-test/smoke-test.sh                # shellcheck + every docker build + entrypoint smoke tests
-test/smoke-test.sh --skip-docker  # shellcheck + pod-lifecycle dry-run validation only (no docker needed)
-test/smoke-test.sh --skip-build   # re-run smoke tests against already-built runpod-smoketest/* images
+make test                  # or: test/smoke-test.sh — shellcheck + every docker build + entrypoint smoke tests
+make test-skip-docker      # shellcheck + pod-lifecycle dry-run validation only (no docker needed)
+make test-skip-build       # re-run smoke tests against already-built runpod-smoketest/* images
 ```
+
+The `test*` Makefile targets are exempted from the `REGISTRY` requirement
+(see the Makefile's `_GOALS` guard) — only the `docker-*` targets need it.
 
 No RunPod account or GPU is needed. This is the same coverage that was
 originally run by hand while building this repo: `shellcheck` over every
