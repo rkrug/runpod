@@ -1,0 +1,25 @@
+"""Pre-download the zero-shot NLI model + tokenizer into the image at build time.
+
+Baking the weights in (vs. a first-request download) means the pod is ready
+seconds after boot and the exact model bytes are pinned to the image digest —
+same rationale as the merged-SPECTER2 step in the TEI image.
+
+The model id comes from the NLI_MODEL build arg (passed through as an env var);
+defaults to this image's own recommended model (multilingual, long-context —
+see docker/nli-runpod/download_model.py for the English-only, shorter-context
+sibling).
+"""
+
+import os
+
+from transformers import AutoModelForSequenceClassification, AutoTokenizer
+
+MODEL_ID = os.environ.get(
+    "NLI_MODEL", "MoritzLaurer/bge-m3-zeroshot-v2.0-c"
+)
+
+if __name__ == "__main__":
+    print(f"[download_model] fetching {MODEL_ID} into the HF cache")
+    AutoTokenizer.from_pretrained(MODEL_ID)
+    AutoModelForSequenceClassification.from_pretrained(MODEL_ID)
+    print("[download_model] done")

@@ -1,0 +1,6 @@
+# Build context is the repo root. We only need this image's own directory.
+*
+!docker/nli-runpod-bge-m3/server.py
+!docker/nli-runpod-bge-m3/download_model.py
+!docker/nli-runpod-bge-m3/entrypoint.sh
+!docker/nli-runpod-bge-m3/nli_idle_watchdog.sh

@@ -244,7 +244,10 @@ else
 
     echo "== ${name}: smoke test =="
     case "${name}" in
-      nli-runpod)
+      nli-runpod|nli-runpod-bge-m3)
+        # Same entrypoint contract (server.py's classify/health/metrics logic
+        # is byte-identical between the two images, only the baked-in model
+        # differs) — reuse smoke_nli() rather than duplicating it.
         if smoke_nli "${tag}"; then pass "${name}: /health, /classify, /metrics"; else fail "${name}: entrypoint smoke test"; fi
         ;;
       bertopic-runpod)
