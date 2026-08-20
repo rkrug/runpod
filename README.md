@@ -44,6 +44,37 @@ which merges a SPECTER2 adapter at build time. They also take a
 CUDA tags, `onnx` for `cpu-*`); that's what lets `make test` build and
 actually **run** them locally with no GPU.
 
+### Which published version to deploy
+
+The `pods.conf.*.example` templates already point at the right tags. This
+table matters only if you're picking a version by hand, or wondering why
+some older tags are still on GHCR.
+
+| Image | Deploy | ⚠️ Do not deploy |
+|---|---|---|
+| `tei-specter2` | `proximity-v0.2.0` / `adhoc_query-v0.2.0` (or `v0.1.2`+) | `v0.1.0`, `v0.1.1` |
+| `bertopic-runpod` | `v0.2.0` (or `v0.1.17`+) | `v0.1.0` – `v0.1.16` |
+| all others | `v0.1.0` | — |
+
+**Why those versions are faulty:** their idle watchdog stops the pod with
+`runpodctl stop pod "$RUNPOD_POD_ID"`. `runpodctl` needs a config file the
+pod doesn't have, so the call fails — and because the script runs under
+`set -euo pipefail`, that failure kills the watchdog silently. **The pod
+then never idle-stops and bills until you notice.** Later versions use
+`POST https://rest.runpod.io/v1/pods/<id>/stop` instead, which needs only
+`RUNPOD_API_KEY`. Confirmed by extracting the watchdog from the published
+images, not inferred from dates.
+
+They're left on GHCR rather than deleted, for different reasons per image.
+For `tei-specter2` it's simply that nothing points at them any more. For
+`bertopic-runpod` it's deliberate: those versions are **not** functionally
+interchangeable — v0.1.8 replaced BERTopic's `fit_transform` with direct
+cuml orchestration, v0.1.14 added PCA + whitening, v0.1.18 added supervised
+UMAP, v0.1.20 changed corpus dedup — so each produces a *different topic
+model*, and an analysis published from one can only be reproduced with that
+exact image. Keep them as a provenance record; the billing fault only costs
+anything if you actually deploy one.
+
 ## Pod lifecycle
 
 `scripts/runpod/` — see [`scripts/runpod/README.md`](scripts/runpod/README.md)
