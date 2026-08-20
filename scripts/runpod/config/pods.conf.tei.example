@@ -20,7 +20,14 @@
 # Self-contained image: the merged SPECTER2 (proximity adapter) model is
 # baked in at build time (see docker/tei-runpod/README.md) — no volume
 # mount, no first-boot download. Bump the tag after rebuilding/pushing.
-IMAGE="ghcr.io/<you>/tei-specter2:proximity-v0.1.0"
+#
+# Use v0.1.3 or newer. Do NOT drop back to v0.1.0/v0.1.1: those predate the
+# v0.1.2 watchdog fix and still call `runpodctl stop pod`, which fails
+# silently under `set -euo pipefail` — the pod then never idle-stops and
+# bills until you notice. Verified by inspecting the published images:
+# v0.1.0 runs `runpodctl stop pod`, v0.1.3 runs
+# `POST https://rest.runpod.io/v1/pods/<id>/stop`.
+IMAGE="ghcr.io/<you>/tei-specter2:proximity-v0.1.3"
 
 # GPU type id exactly as RunPod expects it. List available ids with:
 #   curl -s https://rest.runpod.io/v1/gpuTypes \

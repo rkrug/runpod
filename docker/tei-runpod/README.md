@@ -94,7 +94,7 @@ Wrong tag → the binary refuses to start on that GPU. List of tags:
    [`docs/RunPodSetup.md`](../../docs/RunPodSetup.md) and
    `scripts/runpod/config/pods.conf.tei.example`), or configure manually:
    RunPod → **GPU Pod** → "Edit Template".
-   - Container Image: `ghcr.io/<you>/tei-specter2:proximity-v0.1.0` (or the immutable `@sha256:…` digest — see "Tagging strategy")
+   - Container Image: `ghcr.io/<you>/tei-specter2:proximity-v0.1.3` (or the immutable `@sha256:…` digest — see "Tagging strategy"). **Use v0.1.3 or newer** — v0.1.0/v0.1.1 predate the v0.1.2 watchdog fix and still call `runpodctl stop pod`, which fails silently, so those pods never idle-stop and keep billing.
    - Container Start Command: *(leave blank — entrypoint launches TEI)*
    - Expose HTTP port: `8080`
    - **Environment Variables** (for the idle-watchdog auto-stop):

@@ -20,7 +20,14 @@
 
 # Bump the tag after rebuilding/pushing (see docker/bertopic-runpod/CHANGES.md
 # for the current version).
-IMAGE="ghcr.io/<you>/bertopic-runpod:v0.1.0"
+#
+# Use v0.1.17 or newer. Do NOT drop back to v0.1.0: it predates the v0.1.17
+# watchdog fix and still calls `runpodctl stop pod`, which fails silently
+# under `set -euo pipefail` — the pod then never idle-stops and bills until
+# you notice. v0.1.20 additionally carries the dedup-by-id fix, the
+# supervised-UMAP support and the c-TF-IDF degenerate-clustering guard, so
+# it's the one to use unless you need to reproduce an older run exactly.
+IMAGE="ghcr.io/<you>/bertopic-runpod:v0.1.20"
 
 # GPU type id exactly as RunPod expects it. List available ids with:
 #   curl -s https://rest.runpod.io/v1/gpuTypes \
