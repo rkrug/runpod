@@ -75,9 +75,14 @@ Match TEI's CUDA build to the GPU family you'll rent:
 
 | GPU | Suggested tag |
 |---|---|
-| A100, A6000, A40 (Ampere) | `86-1.5` |
-| A100 (compute 8.0)         | `80-1.5` |
-| RTX 4090, H100 (Hopper)    | `89-1.5` |
+| L4, L40S, RTX 4090, RTX 4000/6000 Ada (Ada Lovelace, 8.9) | `89-1.5` |
+| A10, A40, A6000, A5000, RTX 3090 (Ampere 8.6) | `86-1.5` |
+| A100, A30 (Ampere 8.0) | `1.5` — the **untagged** variant |
+| H100 (Hopper 9.0) | `hopper-1.5` |
+| T4, RTX 2000 (Turing 7.5) | `turing-1.5` (experimental) |
+
+Two traps: there is **no `80-1.5` tag** (compute-8.0 A100 uses the plain
+`1.5` image), and **H100 is not covered by `89-*`** — it needs `hopper-*`.
 
 Wrong tag → the binary refuses to start on that GPU. List of tags:
 [ghcr.io/huggingface/text-embeddings-inference](https://github.com/huggingface/text-embeddings-inference/pkgs/container/text-embeddings-inference).

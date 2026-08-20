@@ -56,8 +56,27 @@ read **different weight files**:
 
 | Target | `TEI_TAG` | `MODEL_WEIGHTS` | Reads |
 |---|---|---|---|
-| GPU (default) | `89-1.5` (Ada/Hopper/L40S), `86-1.5` (Ampere), `80-1.5` (A100 c8.0) | `safetensors` | `/model/model.safetensors` |
+| GPU (default) | `89-1.5` — see the tag/GPU table below | `safetensors` | `/model/model.safetensors` |
 | CPU (local testing) | `cpu-1.6` | `onnx` | `/model/onnx/model.onnx` |
+
+### Picking `TEI_TAG` for your GPU
+
+TEI ships one image per CUDA compute capability, and picking the wrong one
+means the container won't start:
+
+| GPU | `TEI_TAG` |
+|---|---|
+| **L4, L40S, RTX 4090**, RTX 4000/6000 Ada (Ada Lovelace, 8.9) | `89-1.5` ← image default |
+| A10, A40, A6000, A5000, RTX 3090 (Ampere 8.6) | `86-1.5` |
+| A100, A30 (Ampere 8.0) | `1.5` — the **untagged** variant |
+| H100 (Hopper 9.0) | `hopper-1.5` |
+| T4, RTX 2000 (Turing 7.5) | `turing-1.5` (experimental) |
+| CPU only | `cpu-1.6` |
+
+Two traps worth knowing: there is **no `80-1.5` tag** (compute-8.0 A100 uses
+the plain `1.5` image), and **H100 is not covered by `89-*`** despite both
+being "modern" — it needs `hopper-*`. Verified against
+[TEI's supported-hardware table](https://github.com/huggingface/text-embeddings-inference/blob/main/docs/source/en/supported_models.md).
 
 Mismatch them and nothing errors at build time — the pod just silently
 re-downloads the format it actually wants on first boot, throwing away the
@@ -118,13 +137,29 @@ curl -s https://$HOST/embed -H 'Content-Type: application/json' \
 
 ## GPU sizing
 
-An **L4 (24 GB)** is the suggested starting point for the weights (~434M
-params). Whether it's actually enough depends on your input lengths, per the
-context-window note above: short passages behave like any other large
-embedding model, long documents may push you to an L40S/A100.
+On parameter count alone (~434M, under 1 GB in fp16) any 24 GB card would
+do, and the throughput/$ winner would be an RTX 4090. **But this is the one
+model here that takes 8192-token inputs**, and activation memory scales with
+sequence length — so with long documents, VRAM becomes the binding
+constraint well before the weights suggest. That's why the suggestion is
+different from this repo's `bge-large-en-v1.5` image.
 
-**Not yet measured on a real GPU pod** — the numbers above are
-architectural, not benchmarked. See "Verification status" below.
+| GPU | VRAM | Mem bandwidth | `TEI_TAG` | Notes |
+|---|---|---|---|---|
+| **L40S** ← suggested | 48 GB | ~864 GB/s | `89-1.5` (default) | Ada-generation speed *and* 48 GB of headroom for long inputs. The balanced pick. |
+| RTX 4090 | 24 GB | ~1008 GB/s | `89-1.5` (default) | Fastest and often cheapest — the right call **if your inputs are short passages**. 24 GB is the risk you accept. |
+| A100 80GB | 80 GB | ~2039 GB/s | **`1.5`** (rebuild) | The safe answer if you routinely embed maximum-length documents. Needs the untagged compute-8.0 image. |
+| L4 | 24 GB | ~300 GB/s | `89-1.5` (default) | Cheapest, but both the slowest here and the tightest on memory — the worst combination for this particular model. |
+
+**Not benchmarked for this model** — the table reasons from published
+bandwidth/compute specs plus the context-length argument. Because the right
+answer here depends on your input-length distribution more than on the model,
+measure with real data before sizing a pool:
+
+```bash
+scripts/runpod/http-pool/watch_gpu.sh -u https://<host> \
+    --metric te_request_count --unit embeds/s
+```
 
 ## Runtime tuning (no rebuild)
 

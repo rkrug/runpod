@@ -53,9 +53,12 @@ RUN test -f /merged/config.json
 # ----------------------------------------------------------------------------
 # Stage 2 — TEI runtime with the merged model copied in.
 # Pick the TEI tag matching your RunPod GPU family:
-#   89-1.5  → Ada / Hopper / RTX 4090 / H100
-#   86-1.5  → Ampere / A100 / A6000
-#   80-1.5  → A100 (compute 8.0)
+#   89-1.5     → Ada Lovelace: L4, L40S, RTX 4090, RTX 4000/6000 Ada
+#   86-1.5     → Ampere 8.6:   A10, A40, A6000, A5000, RTX 3090
+#   1.5        → Ampere 8.0:   A100, A30  (the UNTAGGED variant — there is
+#                              no 80-1.5 tag, despite what you might expect)
+#   hopper-1.5 → Hopper:       H100  (NOT covered by 89-*)
+#   turing-1.5 → Turing:       T4, RTX 2000 (experimental)
 # Pass via --build-arg TEI_TAG=<tag>.
 # ----------------------------------------------------------------------------
 FROM ghcr.io/huggingface/text-embeddings-inference:${TEI_TAG} AS runtime

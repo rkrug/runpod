@@ -24,15 +24,40 @@
 # rebuilding/pushing.
 IMAGE="ghcr.io/<you>/tei-runpod-bge-large-en-v1.5:v0.1.0"
 
-# DIFFERS from pods.conf.tei.example (which suggests L40S). bge-large-en-v1.5
-# is ~335M params with a 512-token cap, so an L4's 24 GB is ample — the same
-# GPU class this repo's similarly-sized NLI pod uses, and materially cheaper
-# than an L40S. Move up to L40S/A100 only if you've measured that throughput,
-# not memory, is your bottleneck.
-# List available ids with:
+# DIFFERS from pods.conf.tei.example (which suggests L40S).
+#
+# Memory is NOT the constraint for this model: ~335M params in fp16 is well
+# under 1 GB of weights, and the 512-token cap bounds activations tightly.
+# Any 24 GB card has ample room, so pick on throughput-per-dollar instead.
+#
+# The 4090 is the pick here because embedding is bandwidth/compute-bound, and
+# it has roughly 3x an L4's memory bandwidth (~1008 vs ~300 GB/s) and ~2.7x
+# its tensor throughput, in the same 24 GB and the same Ada generation — so
+# the image's default TEI_TAG=89-1.5 still applies, no rebuild needed. For
+# bulk corpus embedding that difference compresses a multi-hour job several
+# fold, which usually dwarfs any hourly-rate gap.
+#
+# Alternatives, and when they're the better call:
+#   NVIDIA L40S        48 GB, Ada, ~864 GB/s — secure-cloud availability and
+#                      2x VRAM headroom; also TEI_TAG=89-1.5, no rebuild.
+#                      Prefer if 4090 capacity is scarce or you want ECC.
+#   NVIDIA L4          24 GB, Ada, ~300 GB/s — cheapest per hour and lowest
+#                      power. Fine for small or bursty batches; it's the
+#                      slowest of these for a big backlog.
+#   NVIDIA A100 80GB   ~2039 GB/s. Overkill on memory, genuinely faster, but
+#                      REQUIRES rebuilding with TEI_TAG=1.5 (the untagged
+#                      compute-8.0 image, NOT "80-1.5" — that tag
+#                      doesn't exist).
+#
+# None of this is benchmarked for this specific model — it's reasoning from
+# bandwidth/compute specs. Measure yours: run the pod and watch the rate with
+#   scripts/runpod/http-pool/watch_gpu.sh -u https://<host> \
+#       --metric te_request_count --unit embeds/s
+#
+# List currently available ids + pricing with:
 #   curl -s https://rest.runpod.io/v1/gpuTypes \
 #     -H "Authorization: Bearer $RUNPOD_API_KEY" | jq -r '.[].id'
-GPU_TYPE_ID="NVIDIA L4"
+GPU_TYPE_ID="NVIDIA GeForce RTX 4090"
 GPU_COUNT=1
 
 # HTTP service exposed through RunPod's proxy at

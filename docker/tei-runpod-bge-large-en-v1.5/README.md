@@ -36,8 +36,27 @@ read **different weight files**:
 
 | Target | `TEI_TAG` | `MODEL_WEIGHTS` | Reads |
 |---|---|---|---|
-| GPU (default) | `89-1.5` (Ada/Hopper/L40S), `86-1.5` (Ampere), `80-1.5` (A100 c8.0) | `safetensors` | `/model/model.safetensors` |
+| GPU (default) | `89-1.5` — see the tag/GPU table below | `safetensors` | `/model/model.safetensors` |
 | CPU (local testing) | `cpu-1.6` | `onnx` | `/model/onnx/model.onnx` |
+
+### Picking `TEI_TAG` for your GPU
+
+TEI ships one image per CUDA compute capability, and picking the wrong one
+means the container won't start:
+
+| GPU | `TEI_TAG` |
+|---|---|
+| **L4, L40S, RTX 4090**, RTX 4000/6000 Ada (Ada Lovelace, 8.9) | `89-1.5` ← image default |
+| A10, A40, A6000, A5000, RTX 3090 (Ampere 8.6) | `86-1.5` |
+| A100, A30 (Ampere 8.0) | `1.5` — the **untagged** variant |
+| H100 (Hopper 9.0) | `hopper-1.5` |
+| T4, RTX 2000 (Turing 7.5) | `turing-1.5` (experimental) |
+| CPU only | `cpu-1.6` |
+
+Two traps worth knowing: there is **no `80-1.5` tag** (compute-8.0 A100 uses
+the plain `1.5` image), and **H100 is not covered by `89-*`** despite both
+being "modern" — it needs `hopper-*`. Verified against
+[TEI's supported-hardware table](https://github.com/huggingface/text-embeddings-inference/blob/main/docs/source/en/supported_models.md).
 
 Mismatch them and nothing errors at build time — the pod just silently
 re-downloads the format it actually wants on first boot, throwing away the
@@ -99,13 +118,28 @@ curl -s https://$HOST/embed -H 'Content-Type: application/json' \
 
 ## GPU sizing
 
-An **L4 (24 GB)** is the suggested starting point: ~335M params with a hard
-512-token cap is a small, predictable footprint, and L4 is materially cheaper
-than the L40S that `docker/tei-runpod/`'s README suggests for SPECTER2 work.
-L40S/A100 only buy you throughput here, not headroom.
+**Memory is not the constraint.** ~335M params in fp16 is under 1 GB of
+weights, and the hard 512-token cap bounds activations tightly — any 24 GB
+card has ample room. So choose on throughput per dollar, not capacity.
 
-**Not yet measured on a real GPU pod** — the numbers above are architectural,
-not benchmarked. See "Verification status" below.
+| GPU | VRAM | Mem bandwidth | `TEI_TAG` | Notes |
+|---|---|---|---|---|
+| **RTX 4090** ← suggested | 24 GB | ~1008 GB/s | `89-1.5` (default) | ~3x an L4's bandwidth in the same generation and VRAM. Best throughput/$ for this model. Community cloud; check availability. |
+| L40S | 48 GB | ~864 GB/s | `89-1.5` (default) | Secure-cloud availability, ECC, 2x headroom. The safer pick if 4090 capacity is scarce. |
+| L4 | 24 GB | ~300 GB/s | `89-1.5` (default) | Cheapest per hour, lowest power — but the slowest of these by a wide margin. Fine for small or bursty batches. |
+| A100 80GB | 80 GB | ~2039 GB/s | **`1.5`** (rebuild) | Genuinely faster, wildly overprovisioned on memory. Needs the untagged compute-8.0 image. |
+
+For bulk corpus embedding, the bandwidth gap matters more than the hourly
+rate: a 3x faster card turns a 9-hour backlog into 3 hours, which usually
+more than pays for itself.
+
+**Not benchmarked for this model** — the table reasons from published
+bandwidth/compute specs. Measure yours with this repo's own tooling:
+
+```bash
+scripts/runpod/http-pool/watch_gpu.sh -u https://<host> \
+    --metric te_request_count --unit embeds/s
+```
 
 ## Runtime tuning (no rebuild)
 
