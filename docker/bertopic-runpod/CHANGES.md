@@ -7,7 +7,20 @@ Semantic versioning, loosely:
 - **MINOR** — new feature in the image (new entrypoint behaviour, new bundled tool, etc.).
 - **PATCH** — bug fixes, small tweaks, dependency bumps that don't change the surface.
 
-## v0.2.0 — unified `runpod` repo
+## Unreleased — unified `runpod` repo
+
+Not built or pushed yet, so this carries no version number: the tag it gets
+is whatever `VERSION` you build with (`REGISTRY=... VERSION=... make
+docker-bertopic`). Rename this heading to that version once it's pushed.
+
+Note the `v0.1.x` history below is this image's **pre-extraction** lineage,
+carried over from the project repo it came from — those numbers describe
+builds made before this repo existed. In particular,
+`ghcr.io/rkrug/bertopic-runpod:v0.1.0` currently on GHCR is a 2026-06-08
+build from that era (no OCI source label at all) and predates the v0.1.17
+REST-API watchdog fix, so it still has the broken `runpodctl` self-stop.
+Don't reuse `v0.1.0` for the build described here unless you intend to
+overwrite that stale image.
 
 - Extracted from the newest version of this image (previously duplicated,
   with drift, across several downstream project repos) into this
@@ -344,7 +357,8 @@ Initial release.
 - Base: `rapidsai/base:24.10-cuda12.5-py3.11`.
 - BERTopic 0.17.x, pyarrow, pyyaml.
 - `runpodctl` v1.14.4 for the idle-watchdog's self-stop call (later
-  replaced by the REST API in v0.1.17 and dropped entirely in v0.2.0).
+  replaced by the REST API in v0.1.17, and dropped from the image
+  entirely in the Unreleased entry at the top of this file).
 - sshd for orchestrator transport (rsync + ssh-triggered runs).
 - Heartbeat-based idle watchdog (`/work/.heartbeat`, default `IDLE_MIN=5`).
 - `/opt/run_bertopic_gpu.py` baked in (cuml UMAP + cuml HDBSCAN +

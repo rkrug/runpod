@@ -11,7 +11,21 @@ Semantic versioning, loosely:
   new watchdog signal).
 - **PATCH** — bug fixes, dependency bumps, small entrypoint tweaks.
 
-## v0.2.0 — unified `runpod` repo
+## Unreleased — unified `runpod` repo
+
+Not built or pushed yet, so this carries no version number: the tag it gets
+is whatever `VERSION` you build with (`REGISTRY=... VERSION=... make
+docker-tei`). Rename this heading to that version once it's pushed.
+
+Note the `v0.1.x` history below is this image's **pre-extraction** lineage,
+carried over from the project repo it came from — those numbers describe
+builds made before this repo existed. In particular,
+`ghcr.io/rkrug/tei-specter2:proximity-v0.1.0` currently on GHCR is a
+2026-06-07 build from that era (it still carries an unsubstituted
+`github.com/<you>/TCAC-2-0` source label) and predates the v0.1.2
+REST-API watchdog fix, so it still has the broken `runpodctl` self-stop.
+Don't reuse `v0.1.0` for the build described here unless you intend to
+overwrite that stale image.
 
 - Extracted from the newest version of this image (previously duplicated,
   with drift, across several downstream project repos) into this
