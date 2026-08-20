@@ -117,7 +117,7 @@ Create pods with `scripts/runpod/create_pods.sh` (see the top-level
 `scripts/runpod/config/pods.conf.bertopic.example`), or configure manually
 via RunPod → **GPU Pod** → "Edit Template":
 
-- **Container Image**: `ghcr.io/<you>/bertopic-runpod:v0.1.20` (or the immutable `@sha256:…` digest — see "Tagging strategy"). **Use v0.1.17 or newer** — v0.1.0 predates the v0.1.17 watchdog fix and still calls `runpodctl stop pod`, which fails silently, so those pods never idle-stop and keep billing.
+- **Container Image**: `ghcr.io/<you>/bertopic-runpod:v0.2.0` (or the immutable `@sha256:…` digest — see "Tagging strategy"). **Use v0.2.0 (or at minimum v0.1.17)** — v0.1.0 predates the v0.1.17 watchdog fix and still calls `runpodctl stop pod`, which fails silently, so those pods never idle-stop and keep billing.
 - **Container Start Command**: *(leave blank — entrypoint handles it)*
 - **Expose TCP Ports**: `22` (SSH transport)
 - **Container Disk**: `20 GB` (logs + temp work)

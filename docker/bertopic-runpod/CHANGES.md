@@ -7,20 +7,18 @@ Semantic versioning, loosely:
 - **MINOR** — new feature in the image (new entrypoint behaviour, new bundled tool, etc.).
 - **PATCH** — bug fixes, small tweaks, dependency bumps that don't change the surface.
 
-## Unreleased — unified `runpod` repo
+## v0.2.0 — 2026-08-20 — unified `runpod` repo
 
-Not built or pushed yet, so this carries no version number: the tag it gets
-is whatever `VERSION` you build with (`REGISTRY=... VERSION=... make
-docker-bertopic`). Rename this heading to that version once it's pushed.
+First build published from this repo. Verified after push: the `runpodctl`
+binary is gone from the image and the watchdog stops the pod via the REST
+API. Only ~7 MB of new layers were uploaded — the RAPIDS base, apt and pip
+layers are byte-identical to `v0.1.20` and were skipped by the registry.
 
-Note the `v0.1.x` history below is this image's **pre-extraction** lineage,
+The `v0.1.x` history below is this image's **pre-extraction** lineage,
 carried over from the project repo it came from — those numbers describe
-builds made before this repo existed. In particular,
-`ghcr.io/rkrug/bertopic-runpod:v0.1.0` currently on GHCR is a 2026-06-08
-build from that era (no OCI source label at all) and predates the v0.1.17
-REST-API watchdog fix, so it still has the broken `runpodctl` self-stop.
-Don't reuse `v0.1.0` for the build described here unless you intend to
-overwrite that stale image.
+builds published before this repo existed. Of those, `v0.1.20` is the last
+good one; `v0.1.0` predates the v0.1.17 watchdog fix and still carries the
+broken `runpodctl` self-stop, so don't deploy it.
 
 - Extracted from the newest version of this image (previously duplicated,
   with drift, across several downstream project repos) into this
