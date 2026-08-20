@@ -3,6 +3,32 @@
 Repo-level changelog. See each `docker/<image>/CHANGES.md` for per-image
 version history.
 
+## Unreleased
+
+- Added two TEI embedding images serving plain off-the-shelf HuggingFace
+  models: `docker/tei-runpod-bge-large-en-v1.5/` (`BAAI/bge-large-en-v1.5`,
+  1024-dim, 512-token) and `docker/tei-runpod-gte-large-en-v1.5/`
+  (`Alibaba-NLP/gte-large-en-v1.5`, 1024-dim, 8192-token). Both bake the
+  model in at build time; neither needs `docker/tei-runpod/`'s SPECTER2
+  adapter-merge stage, so their build is just a download.
+- New `MODEL_WEIGHTS` build arg on those two images, because TEI's CUDA
+  backends read `model.safetensors` while its CPU backend reads
+  `onnx/model.onnx`. Getting this wrong is otherwise silent — the pod just
+  re-downloads the format it wants at boot — so the downloader fails the
+  build if the requested format doesn't exist upstream, and the entrypoint
+  warns at boot if neither is present.
+- These two are the first images in this repo that `make test` can genuinely
+  **run** rather than only build: the smoke test builds them against TEI's
+  `cpu-1.6` base and checks `/health`, `/embed` dimensionality, `/metrics`,
+  and that baked-in weights were actually used. (The GPU artifact itself
+  remains unverified without a GPU — noted in each image's README.)
+- Added `scripts/runpod/config/pods.conf.tei-bge-large-en-v1.5.example`,
+  `pods.conf.tei-gte-large-en-v1.5.example`, and
+  `pods.conf.nli-bge-m3.example`, each flagging exactly which values diverge
+  from the base template it's derived from rather than silently restating it.
+- `make docker-tei-bge-large` / `make docker-tei-gte-large` targets; both
+  folded into `docker-all`.
+
 ## v0.1.0 — initial unification
 
 - Extracted the newest versions of `docker/tei-runpod/`,

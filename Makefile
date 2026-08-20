@@ -8,6 +8,8 @@
 #   REGISTRY=ghcr.io/<you> make docker-bertopic
 #   REGISTRY=ghcr.io/<you> make docker-nli
 #   REGISTRY=ghcr.io/<you> make docker-nli-bge-m3
+#   REGISTRY=ghcr.io/<you> make docker-tei-bge-large
+#   REGISTRY=ghcr.io/<you> make docker-tei-gte-large
 #   REGISTRY=ghcr.io/<you> make docker-all
 #   make test
 
@@ -36,6 +38,8 @@ NLI_MODEL ?=
         docker-bertopic-build docker-bertopic-push docker-bertopic \
         docker-nli-build docker-nli-push docker-nli \
         docker-nli-bge-m3-build docker-nli-bge-m3-push docker-nli-bge-m3 \
+        docker-tei-bge-large-build docker-tei-bge-large-push docker-tei-bge-large \
+        docker-tei-gte-large-build docker-tei-gte-large-push docker-tei-gte-large \
         docker-all \
         test test-skip-docker test-skip-build
 
@@ -89,7 +93,38 @@ docker-nli-bge-m3-push: ## Push the multilingual/long-context NLI RunPod image t
 
 docker-nli-bge-m3: docker-nli-bge-m3-build docker-nli-bge-m3-push
 
-docker-all: docker-tei docker-bertopic docker-nli docker-nli-bge-m3
+# --- TEI embedding images (plain off-the-shelf models, no adapter merge) ----
+# MODEL_WEIGHTS must match TEI_TAG: the CUDA tags read model.safetensors,
+# the cpu-* tags read onnx/model.onnx. These targets build for GPU; the
+# CPU-runnable variants used for local verification are built by
+# test/smoke-test.sh, not from here.
+
+docker-tei-bge-large-build: ## Build the BAAI/bge-large-en-v1.5 TEI image
+	docker buildx build --platform $(PLATFORM) \
+	    -t $(REGISTRY)/tei-runpod-bge-large-en-v1.5:$(VERSION) \
+	    --build-arg TEI_TAG=$(TEI_TAG) --build-arg MODEL_WEIGHTS=safetensors \
+	    --build-arg IMAGE_SOURCE_URL=$(IMAGE_SOURCE_URL) \
+	    -f docker/tei-runpod-bge-large-en-v1.5/Dockerfile .
+
+docker-tei-bge-large-push: ## Push the BAAI/bge-large-en-v1.5 TEI image
+	docker push $(REGISTRY)/tei-runpod-bge-large-en-v1.5:$(VERSION)
+
+docker-tei-bge-large: docker-tei-bge-large-build docker-tei-bge-large-push
+
+docker-tei-gte-large-build: ## Build the Alibaba-NLP/gte-large-en-v1.5 TEI image
+	docker buildx build --platform $(PLATFORM) \
+	    -t $(REGISTRY)/tei-runpod-gte-large-en-v1.5:$(VERSION) \
+	    --build-arg TEI_TAG=$(TEI_TAG) --build-arg MODEL_WEIGHTS=safetensors \
+	    --build-arg IMAGE_SOURCE_URL=$(IMAGE_SOURCE_URL) \
+	    -f docker/tei-runpod-gte-large-en-v1.5/Dockerfile .
+
+docker-tei-gte-large-push: ## Push the Alibaba-NLP/gte-large-en-v1.5 TEI image
+	docker push $(REGISTRY)/tei-runpod-gte-large-en-v1.5:$(VERSION)
+
+docker-tei-gte-large: docker-tei-gte-large-build docker-tei-gte-large-push
+
+docker-all: docker-tei docker-bertopic docker-nli docker-nli-bge-m3 \
+            docker-tei-bge-large docker-tei-gte-large
 
 test: ## Run the full local verification suite (shellcheck + builds + smoke tests, no RunPod/GPU needed)
 	test/smoke-test.sh

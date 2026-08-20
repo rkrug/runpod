@@ -9,9 +9,12 @@
 #   - each docker/<image>/ builds successfully
 #   - an image-specific smoke test where one exists (see the dispatch case
 #     below): nli-runpod runs its full /health + /classify + /metrics cycle
-#     on CPU; bertopic-runpod's entrypoint (sshd, heartbeat file, baked-in
-#     script) is checked via docker exec; tei-runpod is build-only verified
-#     (its TEI base tag is GPU-only, so nothing further can run locally)
+#     on CPU; the tei-runpod-<model> embedding images are built against TEI's
+#     cpu-* base and run a /health + /embed + /metrics cycle (also asserting
+#     the baked-in weights are used rather than re-downloaded);
+#     bertopic-runpod's entrypoint (sshd, heartbeat file, baked-in script) is
+#     checked via docker exec; tei-runpod is build-only verified (its
+#     SPECTER2 stack pins a GPU-only TEI tag, so nothing further runs locally)
 #   - scripts/runpod/http-pool/{keep_alive,watch_gpu}.sh against a throwaway
 #     local HTTP server, for both the default (nli) and an overridden
 #     (tei-style --path/--body / --metric) contract
@@ -50,7 +53,7 @@ pass() { echo "[PASS] $1"; PASS=$((PASS + 1)); }
 fail() { echo "[FAIL] $1"; FAIL=$((FAIL + 1)); }
 
 cleanup() {
-  docker rm -f nli-runpod-smoketest bertopic-runpod-smoketest >/dev/null 2>&1 || true
+  docker rm -f nli-runpod-smoketest bertopic-runpod-smoketest tei-embed-smoketest >/dev/null 2>&1 || true
   [[ -n "${FAKE_SRV_PID:-}" ]] && kill "${FAKE_SRV_PID}" >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
@@ -220,6 +223,61 @@ smoke_bertopic() {
   [[ "${ok}" -eq 1 ]]
 }
 
+# TEI embedding images that bake in a plain HuggingFace model
+# (docker/tei-runpod-*-en-v1.5/). Unlike docker/tei-runpod/ (SPECTER2), these
+# are built here against TEI's cpu-* base so they can actually be RUN locally
+# rather than only built — see the build loop's per-image build_args.
+#
+# $2 is the embedding dimensionality the model must return; passing it in
+# rather than just checking "some array came back" is what makes this a real
+# check — a wrong-model or wrong-pooling bake still returns a plausible-looking
+# array, just the wrong width.
+smoke_tei_embedding() {
+  local tag="$1" expect_dims="$2"
+  docker rm -f tei-embed-smoketest >/dev/null 2>&1 || true
+  docker run -d --rm --name tei-embed-smoketest -p 18093:8080 "${tag}" >/dev/null
+
+  local ready=0
+  # Generous: these run emulated on arm64 hosts, and ONNX session init for a
+  # ~1.3-1.7 GB model is the slow part.
+  for _ in $(seq 1 48); do
+    if curl -sf http://localhost:18093/health >/dev/null 2>&1; then ready=1; break; fi
+    sleep 5
+  done
+  if [[ "${ready}" -ne 1 ]]; then
+    echo "  /health never became ready:"
+    docker logs tei-embed-smoketest 2>&1 | tail -30
+    docker rm -f tei-embed-smoketest >/dev/null 2>&1 || true
+    return 1
+  fi
+
+  local ok=1
+
+  local dims
+  dims="$(curl -sf http://localhost:18093/embed \
+      -H 'Content-Type: application/json' \
+      -d '{"inputs":"smoke test"}' 2>/dev/null \
+    | python3 -c 'import json,sys; print(len(json.load(sys.stdin)[0]))' 2>/dev/null)"
+  if [[ "${dims}" != "${expect_dims}" ]]; then
+    echo "  /embed returned ${dims:-no} dims, expected ${expect_dims}"
+    ok=0
+  fi
+
+  # The model must be served from the baked-in /model dir, not re-downloaded
+  # from the Hub at boot — that's the whole point of the build-time bake, and
+  # a TEI_TAG/MODEL_WEIGHTS mismatch is silent otherwise.
+  if docker logs tei-embed-smoketest 2>&1 | grep -qi "downloading.*model\.\(onnx\|safetensors\)"; then
+    echo "  weights were downloaded at boot — baked-in weights not used"
+    ok=0
+  fi
+
+  curl -sf http://localhost:18093/metrics 2>/dev/null | grep -q te_request_count \
+    || { echo "  /metrics missing te_request_count (idle watchdog depends on it)"; ok=0; }
+
+  docker rm -f tei-embed-smoketest >/dev/null 2>&1 || true
+  [[ "${ok}" -eq 1 ]]
+}
+
 echo ""
 if [[ "${SKIP_DOCKER}" -eq 1 ]]; then
   echo "[skip] --skip-docker: not building or smoke-testing any image"
@@ -235,6 +293,14 @@ else
       build_args=()
       case "${name}" in
         tei-runpod) build_args=(--build-arg ADAPTER=proximity) ;;
+        # Build the TEI embedding images against TEI's CPU base instead of
+        # their default CUDA one, so they can actually be RUN here and not
+        # just built. MODEL_WEIGHTS must follow TEI_TAG: the CPU backend
+        # reads onnx/model.onnx, the CUDA backends read model.safetensors.
+        # NOTE this means what's smoke-tested is the CPU variant, not the
+        # GPU artifact you deploy — see each image's "Verification status".
+        tei-runpod-*)
+          build_args=(--build-arg TEI_TAG=cpu-1.6 --build-arg MODEL_WEIGHTS=onnx) ;;
       esac
       if ! docker buildx build --platform linux/amd64 "${build_args[@]}" -t "${tag}" -f "docker/${name}/Dockerfile" .; then
         fail "${name}: docker build"
@@ -255,6 +321,16 @@ else
         ;;
       tei-runpod)
         pass "${name}: build-only verified (GPU-only image, see docker/tei-runpod/README.md)"
+        ;;
+      tei-runpod-bge-large-en-v1.5|tei-runpod-gte-large-en-v1.5)
+        # Both are 1024-dim; the dimensionality is passed explicitly so a
+        # wrong-model bake fails loudly rather than returning a
+        # plausible-looking array of the wrong width.
+        if smoke_tei_embedding "${tag}" 1024; then
+          pass "${name}: /health, /embed (1024 dims), /metrics, baked-in weights"
+        else
+          fail "${name}: entrypoint smoke test"
+        fi
         ;;
       *)
         echo "[skip] no smoke-test function for '${name}' yet — build-only verified."

@@ -1,0 +1,6 @@
+# Build context is the repo root, but we only need this image's own
+# directory. Everything else is excluded to keep context transfer small.
+**
+!docker/tei-runpod-bge-large-en-v1.5/download_model.py
+!docker/tei-runpod-bge-large-en-v1.5/entrypoint.sh
+!docker/tei-runpod-bge-large-en-v1.5/tei_idle_watchdog.sh

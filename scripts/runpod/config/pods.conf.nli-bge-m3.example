@@ -1,0 +1,102 @@
+# Config for scripts/runpod/create_pods.sh — the multilingual, long-context
+# zero-shot NLI pod (docker/nli-runpod-bge-m3/). Copy to pods.conf and edit;
+# pods.conf is gitignored so local overrides never get committed. Values here
+# are shell variable assignments (sourced directly), not YAML.
+#
+# Usage:
+#   cp scripts/runpod/config/pods.conf.nli-bge-m3.example scripts/runpod/config/pods.conf
+#   export RUNPOD_API_KEY=...
+#   scripts/runpod/create_pods.sh -n 1        # -n <N> for a pool
+#
+# Same pod shape as pods.conf.nli.example (HTTP through RunPod's proxy, same
+# /health readiness check, same /classify contract, same idle-watchdog
+# behaviour) — this file exists because three values genuinely differ for
+# this image: IMAGE, CONTAINER_DISK_GB, and the EXTRA_ENV tuning hints.
+# GPU_TYPE_ID is nominally the same but for a different reason; see below.
+# Each is flagged.
+#
+# RUNPOD_API_KEY is NOT set here — export it in your shell before running the
+# script. It authenticates the pod-creation API call itself (this always needs
+# the raw key — RunPod Secrets are substituted inside a running pod, not in
+# requests to create one).
+
+# DIFFERS from pods.conf.nli.example. Bakes in
+# MoritzLaurer/bge-m3-zeroshot-v2.0-c (multilingual, ~8194-token context)
+# rather than the English-only, 512-token deberta-v3-large-zeroshot-v2.0.
+# See docker/nli-runpod-bge-m3/README.md. Bump the tag after
+# rebuilding/pushing.
+IMAGE="ghcr.io/<you>/nli-runpod-bge-m3:v0.1.0"
+
+# Nominally the same L4 as pods.conf.nli.example, but that is NOT a measured
+# choice here: this model is bigger (~568M params vs ~435M) AND this image
+# ships NLI_MAX_LENGTH=2048 rather than 512, so activation memory per request
+# is several times larger. An L4's 24 GB is the starting point, not a
+# validated one — measure with your real premise lengths before sizing a
+# pool, and move up to L40S/A100 if you OOM or throughput disappoints.
+# List available ids with:
+#   curl -s https://rest.runpod.io/v1/gpuTypes \
+#     -H "Authorization: Bearer $RUNPOD_API_KEY" | jq -r '.[].id'
+GPU_TYPE_ID="NVIDIA L4"
+GPU_COUNT=1
+
+# HTTP service exposed through RunPod's proxy at
+# https://<pod-id>-8080.proxy.runpod.net (matches NLI_PORT in the Dockerfile).
+POD_KIND="http"
+PORT=8080
+HEALTH_PATH="/health"
+
+# DIFFERS from pods.conf.nli.example (10 GB). bge-m3-zeroshot-v2.0-c is a
+# larger baked-in model than deberta-v3-large-zeroshot-v2.0, so the image is
+# correspondingly bigger; 15 GB leaves headroom for the image plus scratch.
+# The model is baked in, so volume storage is headroom only.
+CONTAINER_DISK_GB=15
+VOLUME_GB=0
+VOLUME_MOUNT_PATH="/workspace"
+
+# RunPod cloud tier: SECURE (RunPod-operated DCs) or COMMUNITY (cheaper, less
+# guaranteed availability). Verify this field name/values against the current
+# RunPod API docs if pod creation fails with a cloudType error.
+CLOUD_TYPE="SECURE"
+
+# Name prefix; pods are named "<prefix>-<timestamp>-01", ...
+POD_NAME_PREFIX="nli-runpod-bge-m3"
+
+# Idle watchdog settings, passed into each pod's environment. Note the
+# watchdog resets only on real /classify traffic — /health and /metrics polls
+# do NOT count as activity.
+IDLE_MIN=5
+POLL_SEC=30
+
+# Value for the created pod's own RUNPOD_API_KEY env var (used internally by
+# the idle watchdog's self-stop REST call). Leave unset to fall back to the
+# raw local RUNPOD_API_KEY (simplest, but the raw key ends up in the API
+# request body and hosts.generated.*). Set to a RunPod Secret reference
+# instead so the raw key never leaves RunPod's secret store — RunPod
+# substitutes the real value only when the pod boots.
+POD_ENV_RUNPOD_API_KEY='{{ RUNPOD_SECRET_runpod_api_key }}'
+
+# DIFFERS from pods.conf.nli.example, which has no EXTRA_ENV hints at all.
+# The values below are this image's own baked-in defaults, listed so the
+# override you'd actually type is visible. Uncomment only to change them
+# without rebuilding.
+#
+# NLI_MAX_LENGTH is the one worth thinking about: 2048 is a deliberate
+# middle ground, not the model's ceiling (~8194). Raising it costs memory and
+# latency roughly linearly; a client can also override it per request via the
+# /classify body's "max_length" field, which takes precedence over this.
+EXTRA_ENV=(
+  # "NLI_MAX_LENGTH=2048"
+  # "NLI_DTYPE=float16"
+  # "NLI_DEVICE=0"
+)
+
+# How long (seconds) to poll each new pod's /health before giving up. Higher
+# than pods.conf.nli.example's 300 would be reasonable if you see cold starts
+# time out — this image is larger, so its first pull takes longer.
+HEALTH_TIMEOUT_SEC=300
+HEALTH_POLL_INTERVAL_SEC=10
+
+# Delay (seconds) between successive pod-creation calls when creating several
+# at once. Staggers the (multi-GB, model-baked-in) image pulls instead of N
+# pods all pulling simultaneously. Set to 0 to disable.
+CREATE_DELAY_SEC=10

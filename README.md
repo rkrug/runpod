@@ -28,11 +28,21 @@ from where.
 | Image | Directory | Workload | Exposure |
 |---|---|---|---|
 | `tei-specter2` | [`docker/tei-runpod/`](docker/tei-runpod/) | SPECTER2 embedding server (HuggingFace TEI) | HTTP |
+| `tei-runpod-bge-large-en-v1.5` | [`docker/tei-runpod-bge-large-en-v1.5/`](docker/tei-runpod-bge-large-en-v1.5/) | `BAAI/bge-large-en-v1.5` embedding server — 1024-dim, 512-token | HTTP |
+| `tei-runpod-gte-large-en-v1.5` | [`docker/tei-runpod-gte-large-en-v1.5/`](docker/tei-runpod-gte-large-en-v1.5/) | `Alibaba-NLP/gte-large-en-v1.5` embedding server — 1024-dim, **8192-token** | HTTP |
 | `bertopic-runpod` | [`docker/bertopic-runpod/`](docker/bertopic-runpod/) | BERTopic-style GPU clustering (cuml UMAP + HDBSCAN) | SSH (TCP/22) |
-| `nli-runpod` | [`docker/nli-runpod/`](docker/nli-runpod/) | Zero-shot NLI classification server | HTTP |
+| `nli-runpod` | [`docker/nli-runpod/`](docker/nli-runpod/) | Zero-shot NLI classification server (English, 512-token) | HTTP |
+| `nli-runpod-bge-m3` | [`docker/nli-runpod-bge-m3/`](docker/nli-runpod-bge-m3/) | Zero-shot NLI classification server (multilingual, long-context) | HTTP |
 
 Each has its own `README.md` (build/deploy instructions) and `CHANGES.md`
 (version history).
+
+The two `tei-runpod-<model>` images serve plain off-the-shelf HuggingFace
+embedding models, so their build is just a download — unlike `tei-runpod`,
+which merges a SPECTER2 adapter at build time. They also take a
+`MODEL_WEIGHTS` build arg that must match `TEI_TAG` (`safetensors` for the
+CUDA tags, `onnx` for `cpu-*`); that's what lets `make test` build and
+actually **run** them locally with no GPU.
 
 ## Pod lifecycle
 
