@@ -24,10 +24,33 @@ POST /classify -> body:
       "candidate_labels": ["supports", "refutes", "is not relevant to"],
       "hypothesis_template": "This example is {}.",
       "multi_label": false,
-      "batch_size": 128
+      "batch_size": 128,
+      "passes": 3
     }
   returns one {"labels": [...], "scores": [...]} object per input sequence,
   labels sorted by descending score (same contract as the HF pipeline).
+
+  "passes" (default 3) selects the scoring mechanism, independent of which
+  model is loaded:
+    - passes: 3 (zero-shot) -- one forward pass per candidate label, each
+      with its own reformulated hypothesis (hypothesis_template.format(label)),
+      keeping only that pass's entailment logit; the resulting per-label
+      entailment logits are cross-normalized (softmax) into the returned
+      scores. This is the standard zero-shot-classification-via-NLI
+      technique and works with any entailment-capable model regardless of
+      how many raw classes its own head has.
+    - passes: 1 (direct classifier, e.g. one fine-tuned on this task) -- one
+      forward pass on (sequence, "hypothesis") as given verbatim (no
+      per-label reformulation: "hypothesis_template" is unused, and a
+      literal "hypothesis" string is required instead), reading the model's
+      own native N-way softmax directly. Its output classes are matched to
+      "candidate_labels" BY NAME (via the model's own config.id2label,
+      case/whitespace-normalized), not by raw index position, and the
+      request fails loudly if any candidate_labels entry has no matching
+      class -- see _direct_label_order() below.
+  Either way the response shape and label keys are identical, so a caller
+  only needs to pick the right request fields for its own "passes" value;
+  everything downstream of the response is scoring-mechanism-agnostic.
 
 Tuning via env vars (all optional):
   NLI_MODEL        model id (default: MoritzLaurer/deberta-v3-large-zeroshot-v2.0)
@@ -42,7 +65,7 @@ Tuning via env vars (all optional):
 import os
 from typing import List, Optional
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
 import torch
@@ -97,6 +120,39 @@ ENTAILMENT_ID = _entailment_id()
 # logit for multi_label scoring: opposite end of the head from entailment.
 CONTRADICTION_ID = -1 if ENTAILMENT_ID == 0 else 0
 
+
+def _norm_label(label: str) -> str:
+    return str(label).strip().upper().replace(" ", "_").replace("-", "_")
+
+
+def _direct_label_order(candidate_labels: List[str]) -> List[int]:
+    """Map candidate_labels onto this model's own native class indices, for
+    passes == 1 (direct classifier) requests.
+
+    Matches BY NAME (normalised: upper-cased, spaces/hyphens -> underscores),
+    not by raw index position -- a fine-tuned model's own label2id ordering
+    is an implementation detail of how it happened to be trained, not
+    something callers should have to track. Raises ValueError (surfaced as
+    a 400) listing exactly which label(s) failed to match, rather than
+    silently mis-mapping classes.
+    """
+    id2label = getattr(_model.config, "id2label", None) or {}
+    native = {_norm_label(v): int(k) for k, v in id2label.items()}
+    order = []
+    unmatched = []
+    for label in candidate_labels:
+        key = _norm_label(label)
+        if key not in native:
+            unmatched.append(label)
+        else:
+            order.append(native[key])
+    if unmatched:
+        raise ValueError(
+            f"passes=1 candidate_labels {unmatched!r} have no matching class "
+            f"in this model's id2label {id2label!r}"
+        )
+    return order
+
 app = FastAPI(title="nli-runpod", version="0.1.0")
 
 # Cumulative count of classified sequences, exposed at /metrics for the
@@ -108,8 +164,16 @@ class ClassifyRequest(BaseModel):
     sequences: List[str]
     candidate_labels: List[str]
     hypothesis_template: str = "This example is {}."
+    # Required (and used verbatim, no .format() applied) instead of
+    # hypothesis_template when passes == 1. Ignored otherwise.
+    hypothesis: Optional[str] = None
     multi_label: bool = False
     batch_size: int = 128
+    # 3 = zero-shot (per-label reformulation + cross-normalized entailment,
+    # the only scheme this server used before "passes" existed). 1 = a
+    # directly fine-tuned classifier (one forward pass, native head
+    # softmax). See the module docstring's POST /classify section.
+    passes: int = 3
     # Per-request truncation length. Falls back to the NLI_MAX_LENGTH env
     # default when omitted, so the client can drive it from its own config.
     max_length: Optional[int] = None
@@ -130,6 +194,10 @@ def health():
         "entailment_id": ENTAILMENT_ID,
         "max_length": MAX_LENGTH,
         "tokenizer_fast": bool(getattr(_tokenizer, "is_fast", False)),
+        # This model's own native output classes -- lets a caller verify a
+        # passes: 1 (direct classifier) config's candidate_labels will
+        # actually match before sending real traffic.
+        "id2label": getattr(_model.config, "id2label", None),
     }
 
 
@@ -191,9 +259,55 @@ def classify(req: ClassifyRequest):
     print(
         f"[classify] n_seq={n_seq} n_lab={n_lab} batch_size={req.batch_size} "
         f"max_length={max_length} (from {'request' if req.max_length is not None else 'env NLI_MAX_LENGTH'}; "
-        f"env default={MAX_LENGTH})",
+        f"env default={MAX_LENGTH}) passes={req.passes}",
         flush=True,
     )
+
+    if req.passes == 1:
+        # Direct classifier (e.g. a model fine-tuned on this exact task): one
+        # forward pass per sequence on (sequence, req.hypothesis) taken
+        # verbatim -- no per-label reformulation, no ENTAILMENT_ID logic.
+        # Native head softmax, columns reordered to candidate_labels by name.
+        if not req.hypothesis:
+            raise HTTPException(
+                status_code=400, detail="passes=1 requires a non-empty `hypothesis`"
+            )
+        try:
+            label_idx = _direct_label_order(labels)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        with torch.no_grad():
+            logits_out = []
+            bs = max(1, req.batch_size)
+            hyps = [req.hypothesis] * n_seq
+            for start in range(0, n_seq, bs):
+                end = start + bs
+                enc = _tokenizer(
+                    req.sequences[start:end],
+                    hyps[start:end],
+                    truncation="longest_first",
+                    max_length=max_length,
+                    padding=True,
+                    return_tensors="pt",
+                ).to(TORCH_DEVICE)
+                logits_out.append(_model(**enc).logits.float().cpu())
+            logits = (
+                torch.cat(logits_out) if logits_out else torch.empty(0, len(label_idx))
+            )
+        scores = torch.softmax(logits, dim=-1)[:, label_idx]  # [n_seq, n_lab]
+        _request_count += n_seq
+        results = []
+        for i in range(n_seq):
+            row = scores[i]
+            order = torch.argsort(row, descending=True).tolist()
+            results.append(
+                ClassifyResult(
+                    labels=[labels[j] for j in order],
+                    scores=[float(row[j]) for j in order],
+                )
+            )
+        return results
+
     hypotheses = [req.hypothesis_template.format(lbl) for lbl in labels]
 
     # All (premise, hypothesis) pairs, premise-major:
