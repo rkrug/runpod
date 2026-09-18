@@ -82,7 +82,7 @@ echo "[entrypoint] external heartbeat keeper started (touches /work/.heartbeat e
 # Only meaningful on a real RunPod pod where RUNPOD_POD_ID is set.
 if [ -n "${RUNPOD_POD_ID:-}" ]; then
     /usr/local/bin/bertopic_idle_watchdog.sh &
-    echo "[entrypoint] idle watchdog started (IDLE_MIN=${IDLE_MIN:-5} min)"
+    echo "[entrypoint] idle watchdog started (startup grace ${STARTUP_GRACE_MIN:-60} min until first use, then IDLE_MIN=${IDLE_MIN:-5} min)"
 else
     echo "[entrypoint] RUNPOD_POD_ID not set — skipping idle watchdog"
 fi

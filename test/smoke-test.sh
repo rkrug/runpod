@@ -71,6 +71,162 @@ else
 fi
 
 echo ""
+echo "== nli-runpod / nli-runpod-bge-m3 server.py parity =="
+# docker/nli-runpod-bge-m3/server.py is a deliberate COPY of
+# docker/nli-runpod/server.py (one-self-contained-directory-per-image), so the
+# two silently drift the moment someone edits one and not the other. That is not
+# hypothetical: commit 52b263d added the passes:1 direct-classifier mode to
+# nli-runpod only, and because ClassifyRequest declared neither `passes` nor
+# `hypothesis` -- and pydantic ignores unknown fields by default -- the bge-m3
+# image silently DROPPED both for weeks instead of erroring. A passes:1 client
+# would have been scored with 3-pass zero-shot against the default
+# "This example is {}." template rather than its own hypothesis.
+#
+# This asserts the copies are byte-identical after reversing the only intended
+# per-image differences. Adding a legitimate new difference means adding it to
+# EXPECTED below, deliberately, rather than letting the check rot.
+if command -v python3 >/dev/null 2>&1; then
+  if python3 - <<'PARITY'
+import io, sys
+
+A = "docker/nli-runpod/server.py"
+B = "docker/nli-runpod-bge-m3/server.py"
+a = io.open(A, encoding="utf-8").read()
+b = io.open(B, encoding="utf-8").read()
+
+# (bge-m3 text, nli-runpod text) -- the intended per-image differences.
+EXPECTED = [
+    ('"""Minimal zero-shot NLI inference server (multilingual, long-context variant).\n',
+     '"""Minimal zero-shot NLI inference server.\n'),
+    ("  NLI_MODEL        model id (default: MoritzLaurer/bge-m3-zeroshot-v2.0-c)",
+     "  NLI_MODEL        model id (default: MoritzLaurer/deberta-v3-large-zeroshot-v2.0)"),
+    ('    "NLI_MODEL", "MoritzLaurer/bge-m3-zeroshot-v2.0-c"',
+     '    "NLI_MODEL", "MoritzLaurer/deberta-v3-large-zeroshot-v2.0"'),
+    ('MAX_LENGTH = int(os.environ.get("NLI_MAX_LENGTH", "2048"))',
+     'MAX_LENGTH = int(os.environ.get("NLI_MAX_LENGTH", "512"))'),
+    ('app = FastAPI(title="nli-runpod-bge-m3", version="0.1.0")',
+     'app = FastAPI(title="nli-runpod", version="0.1.0")'),
+]
+# Two block-level differences, matched by their start/end markers rather than
+# verbatim so prose edits inside them do not fail the check.
+BLOCKS = [
+    ("A deliberate COPY of docker/nli-runpod/server.py",
+     "Why not the ``zero-shot-classification`` pipeline?", ""),
+    ("  NLI_MAX_LENGTH   tokenizer truncation length (default: 2048",
+     "actually sends)",
+     "  NLI_MAX_LENGTH   tokenizer truncation length (default: 512)"),
+]
+
+problems = []
+for src, dst in EXPECTED:
+    if src not in b:
+        problems.append("expected bge-m3-specific text is missing: %r" % src[:70])
+    else:
+        b = b.replace(src, dst)
+for start, end, repl in BLOCKS:
+    if start not in b:
+        problems.append("expected bge-m3-specific block is missing: %r" % start[:70])
+        continue
+    i = b.index(start)
+    j = b.index(end, i) + (0 if repl == "" else len(end))
+    b = b[:i] + repl + b[j:]
+
+if b != a and not problems:
+    import difflib
+    d = [l for l in difflib.unified_diff(a.split("\n"), b.split("\n"),
+                                         fromfile=A, tofile=B + " (normalised)",
+                                         lineterm="", n=1)]
+    problems.append("files differ beyond the intended per-image differences:")
+    problems.extend(d[:40])
+
+if problems:
+    print("\n".join("  " + str(x) for x in problems))
+    sys.exit(1)
+sys.exit(0)
+PARITY
+  then
+    pass "nli server.py parity (bge-m3 is an exact copy modulo intended diffs)"
+  else
+    echo "  Fix: re-derive docker/nli-runpod-bge-m3/server.py FROM docker/nli-runpod/server.py"
+    echo "       and re-apply only the intended substitutions -- do not hand-port features."
+    fail "nli server.py parity"
+  fi
+else
+  echo "[skip] python3 not installed"
+fi
+
+echo ""
+echo "== idle-watchdog copy parity =="
+# Same reasoning as the server.py check above: several images carry a
+# deliberate COPY of another image's watchdog, differing only by a provenance
+# comment. The originals of all of them shared three bugs (idle timer starting
+# before first use, IDLE_MIN=0 stopping immediately, a never-usable pod never
+# stopping); fixing one and missing a copy is exactly how that would return.
+if command -v python3 >/dev/null 2>&1; then
+  if python3 - <<'WDPARITY'
+import io, sys
+
+# canonical -> copies that must match it modulo their provenance comment
+GROUPS = {
+    "docker/nli-runpod/nli_idle_watchdog.sh": [
+        "docker/nli-runpod-bge-m3/nli_idle_watchdog.sh",
+    ],
+    "docker/tei-runpod/tei_idle_watchdog.sh": [
+        "docker/tei-runpod-bge-large-en-v1.5/tei_idle_watchdog.sh",
+        "docker/tei-runpod-gte-large-en-v1.5/tei_idle_watchdog.sh",
+    ],
+}
+
+def strip_note(text):
+    """Drop the '# Identical to docker/...' provenance paragraph plus the ONE
+    '#' separator line that follows it. The note sits between two '#' lines in
+    the copy, so removing the note and exactly one separator restores the
+    canonical shape -- dropping both separators would under-count by a line and
+    report a difference that is not there."""
+    lines = text.split("\n")
+    out, i = [], 0
+    while i < len(lines):
+        if lines[i].startswith("# Identical to docker/"):
+            while i < len(lines) and lines[i].startswith("#"):
+                ended = "not a shared file." in lines[i]
+                i += 1
+                if ended:
+                    break
+            if i < len(lines) and lines[i].strip() == "#":
+                i += 1
+            continue
+        out.append(lines[i]); i += 1
+    return "\n".join(out)
+
+problems = []
+for canon, copies in GROUPS.items():
+    a = strip_note(io.open(canon, encoding="utf-8").read())
+    for c in copies:
+        b = strip_note(io.open(c, encoding="utf-8").read())
+        if a != b:
+            import difflib
+            problems.append("%s differs from %s beyond its provenance comment:" % (c, canon))
+            problems.extend(list(difflib.unified_diff(
+                a.split("\n"), b.split("\n"), fromfile=canon, tofile=c,
+                lineterm="", n=1))[:30])
+
+if problems:
+    print("\n".join("  " + str(x) for x in problems))
+    sys.exit(1)
+sys.exit(0)
+WDPARITY
+  then
+    pass "idle-watchdog copy parity (nli x2, tei x3)"
+  else
+    echo "  Fix: copy the canonical watchdog over the divergent one and re-add only"
+    echo "       its '# Identical to docker/...' provenance comment."
+    fail "idle-watchdog copy parity"
+  fi
+else
+  echo "[skip] python3 not installed"
+fi
+
+echo ""
 echo "== create_pods.sh / stop_pods.sh argument & config validation =="
 dryrun_ok=1
 

@@ -54,7 +54,7 @@ fi
 # Skipped if we're not on a real pod (no RUNPOD_POD_ID).
 if [ -n "${RUNPOD_POD_ID:-}" ]; then
     /usr/local/bin/tei_idle_watchdog.sh &
-    echo "[entrypoint] idle watchdog started (IDLE_MIN=${IDLE_MIN:-5} min)"
+    echo "[entrypoint] idle watchdog started (startup grace ${STARTUP_GRACE_MIN:-60} min until first use, then IDLE_MIN=${IDLE_MIN:-5} min)"
 fi
 
 echo "Starting TEI"

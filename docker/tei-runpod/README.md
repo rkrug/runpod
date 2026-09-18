@@ -121,7 +121,8 @@ Set in RunPod template **Environment Variables**:
 | `TEI_MAX_CONCURRENT` | `2048` | Concurrent in-flight requests. |
 | `TEI_MAX_CLIENT_BATCH` | `512` | Per-HTTP-request texts; client batch size. |
 | `TEI_SERVED_NAME` | `allenai/specter2_<adapter>_merged` | Surfaces in `/info`. |
-| `IDLE_MIN` | `5` | Minutes of TEI inactivity before the idle watchdog stops the pod. **Tune to taste** — see below. |
+| `IDLE_MIN` | `5` | Minutes of TEI inactivity before the idle watchdog stops the pod — counted only **after** the pod has served its first request. **Tune to taste** — see below. `0` disables it. |
+| `STARTUP_GRACE_MIN` | `60` | Minutes the pod may live **without ever serving a request** before stopping itself. Covers both a pod nobody sends work to and one whose model never loads. `0` disables it. |
 | `POLL_SEC` | `30` | How often the watchdog samples TEI's request counter. Lower → faster shutdown after last request; higher → less log noise. |
 | `LOG_DIR` | `/workspace` | Where the entrypoint persists the TEI log file (see "Persistent logs" below). Must be the volume-mounted path on the pod. |
 | `RUNPOD_API_KEY` | *(unset)* | **Required** for the idle watchdog to be able to self-stop via the RunPod REST API. Set in the pod template. |

@@ -109,6 +109,11 @@ source "${CONFIG_FILE}"
 : "${SUPPORT_PUBLIC_IP:=false}"
 : "${POD_NAME_PREFIX:=runpod}"
 : "${IDLE_MIN:=5}"
+# Minutes a pod may live without ever serving a request. The idle watchdog does
+# not start its IDLE_MIN countdown until the first real request arrives, so
+# bringing up a pool no longer races the earliest pods' idle timers; this bounds
+# the pod that is never used at all. See docker/nli-runpod/nli_idle_watchdog.sh.
+: "${STARTUP_GRACE_MIN:=60}"
 : "${POLL_SEC:=30}"
 # Generous default: a cold pod must pull a multi-GB (model-baked-in) image
 # and load the model before /health returns 2xx. Raise in pods.conf if your
@@ -119,6 +124,16 @@ source "${CONFIG_FILE}"
 # model-baked-in) image at the exact same instant — mitigates possible
 # shared-egress/registry contention if several pods land on nearby nodes.
 : "${CREATE_DELAY_SEC:=10}"
+# Partial-availability policy. Capacity for the requested GPU type is not
+# guaranteed, so "-n 10" can legitimately yield fewer than 10 pods. MIN_READY
+# is the number below which the result is useless to the caller and the script
+# reports hard failure; at or above it, the run is a PARTIAL success and the
+# pods that did come up are reported normally (exit 2).
+: "${MIN_READY:=1}"
+# Stop trying after this many CONSECUTIVE creation failures. Capacity errors
+# repeat, so hammering the API 10 times to collect 10 copies of the same
+# "no instances available" is noise; a one-off blip still gets retried.
+: "${MAX_CONSECUTIVE_CREATE_FAILURES:=3}"
 # Value injected as each pod's own RUNPOD_API_KEY env var (used by the idle
 # watchdog's self-stop REST call from inside the pod). Defaults to the raw
 # local RUNPOD_API_KEY, but pods.conf can override this with a RunPod
@@ -141,8 +156,9 @@ base_env_json="$(
   jq -n \
     --arg runpodApiKey "${POD_ENV_RUNPOD_API_KEY}" \
     --arg idleMin "${IDLE_MIN}" \
+    --arg startupGraceMin "${STARTUP_GRACE_MIN}" \
     --arg pollSec "${POLL_SEC}" \
-    '{RUNPOD_API_KEY: $runpodApiKey, IDLE_MIN: $idleMin, POLL_SEC: $pollSec}'
+    '{RUNPOD_API_KEY: $runpodApiKey, IDLE_MIN: $idleMin, STARTUP_GRACE_MIN: $startupGraceMin, POLL_SEC: $pollSec}'
 )"
 extra_env_json="{}"
 if [[ "${#EXTRA_ENV[@]}" -gt 0 ]]; then
@@ -157,6 +173,8 @@ env_json="$(jq -n --argjson base "${base_env_json}" --argjson extra "${extra_env
 declare -a POD_IDS=()
 declare -a POD_NAMES=()
 declare -a POD_HOSTS=()   # http kind only: proxy hostname, computed at creation time
+declare -a CREATE_FAILED=()
+consecutive_failures=0
 
 echo "Creating ${COUNT} pod(s) from ${CONFIG_FILE} (kind=${POD_KIND}, image=${IMAGE}, gpu=${GPU_TYPE_ID})..." >&2
 
@@ -205,10 +223,27 @@ for i in $(seq 1 "${COUNT}"); do
 
   pod_id="$(echo "${response}" | jq -r '.id // empty')"
   if [[ -z "${pod_id}" ]]; then
-    echo "error: pod creation failed for ${name}. Response:" >&2
-    echo "${response}" | jq . >&2 2>/dev/null || echo "${response}" >&2
-    exit 1
+    # Do NOT exit here. Every pod created so far is already running and
+    # billing; exiting would abandon them with no inventory CSV, no host list
+    # and no teardown command -- the caller would have to find them in the
+    # RunPod console by hand. Record the failure, keep going, and let the
+    # reporting at the end decide whether what we got is usable.
+    reason="$(echo "${response}" | jq -r '.error // .message // empty' 2>/dev/null || true)"
+    [[ -z "${reason}" ]] && reason="$(echo "${response}" | tr -d '\n' | cut -c1-200)"
+    echo "  [${i}/${COUNT}] FAILED to create ${name}: ${reason}" >&2
+    CREATE_FAILED+=("${name}: ${reason}")
+    consecutive_failures=$((consecutive_failures + 1))
+    if [[ "${consecutive_failures}" -ge "${MAX_CONSECUTIVE_CREATE_FAILURES}" ]]; then
+      echo "  giving up on the remaining pods after ${consecutive_failures} consecutive failures" >&2
+      echo "  (capacity errors repeat; raise MAX_CONSECUTIVE_CREATE_FAILURES to keep trying)" >&2
+      break
+    fi
+    if [[ "${i}" -lt "${COUNT}" && "${CREATE_DELAY_SEC}" -gt 0 ]]; then
+      sleep "${CREATE_DELAY_SEC}"
+    fi
+    continue
   fi
+  consecutive_failures=0
 
   POD_IDS+=("${pod_id}")
   POD_NAMES+=("${name}")
@@ -226,11 +261,30 @@ for i in $(seq 1 "${COUNT}"); do
   fi
 done
 
-echo "Waiting for each pod to become ready (timeout ${HEALTH_TIMEOUT_SEC}s each)..." >&2
+if [[ "${#CREATE_FAILED[@]}" -gt 0 ]]; then
+  echo "" >&2
+  echo "note: ${#CREATE_FAILED[@]} of ${COUNT} pod(s) could not be created:" >&2
+  printf '  - %s\n' "${CREATE_FAILED[@]}" >&2
+fi
+
+if [[ "${#POD_IDS[@]}" -eq 0 ]]; then
+  # Same reasoning as the n_ready == 0 path below: a previous run's host list
+  # must never survive a failed run looking like this one's result.
+  echo "# no pods created as of $(date -u +%Y-%m-%dT%H:%M:%SZ)" > "${SCRIPT_DIR}/hosts.generated.yaml"
+  echo "" >&2
+  echo "error: no pods were created at all — nothing to report or clean up." >&2
+  echo "Check GPU availability for '${GPU_TYPE_ID}' in the ${CLOUD_TYPE} tier, or try another" >&2
+  echo "GPU_TYPE_ID (valid ids: curl -s https://rest.runpod.io/v1/openapi.json |" >&2
+  echo "  jq -r '.components.schemas.PodCreateInput.properties.gpuTypeIds.items.enum[]')." >&2
+  exit 1
+fi
+
+echo "Waiting for ${#POD_IDS[@]} pod(s) to become ready (timeout ${HEALTH_TIMEOUT_SEC}s each)..." >&2
 
 declare -a PUB_HOSTS=()
 declare -a PUB_PORTS=()
 declare -a NOT_READY=()
+declare -a READY_IDX=()
 
 for idx in "${!POD_IDS[@]}"; do
   id="${POD_IDS[$idx]}"
@@ -273,6 +327,7 @@ for idx in "${!POD_IDS[@]}"; do
   PUB_PORTS+=("${pub_port}")
 
   if [[ "${ready}" -eq 1 ]]; then
+    READY_IDX+=("${idx}")
     if [[ "${POD_KIND}" == "http" ]]; then
       echo "  ${name} (${pub_host}): ready after ~${elapsed}s" >&2
     else
@@ -294,25 +349,54 @@ for idx in "${!POD_IDS[@]}"; do
 done
 echo "Wrote pod inventory to ${OUT_CSV}" >&2
 
-# Only emit connection info once every pod is actually up. If any timed out,
-# print no paste block (it would point at a not-yet-serving pod) and exit
-# non-zero — the inventory CSV is still written for teardown.
+# Report whatever actually came up. Previously any not-ready pod suppressed the
+# connection info entirely and exited 1 -- so a run that got 8 of 10 pods gave
+# the caller nothing to paste, while leaving all 8 running and billing, and left
+# hosts.generated.yaml holding the PREVIOUS run's hosts, which is worse than
+# useless: it looks current and points at pods that no longer exist.
+#
+# Now the ready pods are always reported and hosts.generated.yaml is always
+# rewritten from them (never left stale), with exit status distinguishing the
+# three outcomes for callers that script this:
+#   0  every requested pod is ready
+#   2  PARTIAL -- at least MIN_READY are ready, but fewer than requested
+#   1  fewer than MIN_READY are ready (or nothing was created at all)
+n_ready="${#READY_IDX[@]}"
+
+declare -a READY_HOSTS=()
+declare -a READY_PORTS=()
+declare -a READY_NAMES=()
+declare -a READY_IDS=()
+for idx in "${READY_IDX[@]}"; do
+  READY_HOSTS+=("${PUB_HOSTS[$idx]}")
+  READY_PORTS+=("${PUB_PORTS[$idx]}")
+  READY_NAMES+=("${POD_NAMES[$idx]}")
+  READY_IDS+=("${POD_IDS[$idx]}")
+done
+
+echo "" >&2
+echo "Ready: ${n_ready}/${COUNT} requested pod(s)." >&2
 if [[ "${#NOT_READY[@]}" -gt 0 ]]; then
-  echo "" >&2
-  echo "error: ${#NOT_READY[@]} pod(s) did not come up within ${HEALTH_TIMEOUT_SEC}s:" >&2
+  echo "Not ready (created but did not come up in ${HEALTH_TIMEOUT_SEC}s):" >&2
   printf '  - %s\n' "${NOT_READY[@]}" >&2
-  echo "Not printing connection info. Check the RunPod console/logs; ids are in ${OUT_CSV}." >&2
-  echo "Raise HEALTH_TIMEOUT_SEC in pods.conf for a slower cold start, or stop with:" >&2
-  echo "  scripts/runpod/stop_pods.sh" >&2
+  echo "These are RUNNING AND BILLING. Stop them with scripts/runpod/stop_pods.sh -i <id> (ids in ${OUT_CSV})," >&2
+  echo "or raise HEALTH_TIMEOUT_SEC if they were merely slow to pull the image." >&2
+fi
+
+if [[ "${n_ready}" -eq 0 ]]; then
+  # Never leave a previous run's host list looking like this run's result.
+  echo "# no pods ready as of $(date -u +%Y-%m-%dT%H:%M:%SZ)" > "${SCRIPT_DIR}/hosts.generated.yaml"
+  echo "" >&2
+  echo "error: no pod became ready. Inventory (for teardown) is in ${OUT_CSV}." >&2
   exit 1
 fi
 
 echo "" >&2
 if [[ "${POD_KIND}" == "http" ]]; then
-  if [[ "${COUNT}" -eq 1 ]]; then
-    paste_block="host: ${PUB_HOSTS[0]}"
+  if [[ "${n_ready}" -eq 1 ]]; then
+    paste_block="host: ${READY_HOSTS[0]}"
   else
-    host_list="$(printf '"%s", ' "${PUB_HOSTS[@]}")"
+    host_list="$(printf '"%s", ' "${READY_HOSTS[@]}")"
     paste_block="host: [${host_list%, }]"
   fi
   echo "${paste_block}" > "${SCRIPT_DIR}/hosts.generated.yaml"
@@ -322,10 +406,10 @@ if [[ "${POD_KIND}" == "http" ]]; then
   echo "---" >&2
 else
   {
-    for idx in "${!POD_IDS[@]}"; do
-      echo "# ${POD_NAMES[$idx]} (id=${POD_IDS[$idx]})"
-      echo "ssh_host: ${PUB_HOSTS[$idx]}"
-      echo "ssh_port: ${PUB_PORTS[$idx]}"
+    for k in "${!READY_IDS[@]}"; do
+      echo "# ${READY_NAMES[$k]} (id=${READY_IDS[$k]})"
+      echo "ssh_host: ${READY_HOSTS[$k]}"
+      echo "ssh_port: ${READY_PORTS[$k]}"
       echo "ssh_user: root"
       echo "ssh_key_path: ~/.ssh/id_ed25519"
       echo ""
@@ -336,6 +420,19 @@ else
   cat "${SCRIPT_DIR}/hosts.generated.yaml"
   echo "---" >&2
 fi
-echo "(also written to ${SCRIPT_DIR}/hosts.generated.yaml)" >&2
+echo "(also written to ${SCRIPT_DIR}/hosts.generated.yaml — READY pods only)" >&2
 echo "Pod inventory (for teardown): ${OUT_CSV}" >&2
 echo "Stop a pod with: scripts/runpod/stop_pods.sh   (or -i <pod-id>; ids are in ${OUT_CSV})" >&2
+
+if [[ "${n_ready}" -lt "${MIN_READY}" ]]; then
+  echo "" >&2
+  echo "error: only ${n_ready} pod(s) ready, below MIN_READY=${MIN_READY}." >&2
+  echo "The host list above is still valid for the pods that DID come up." >&2
+  exit 1
+fi
+
+if [[ "${n_ready}" -lt "${COUNT}" ]]; then
+  echo "" >&2
+  echo "PARTIAL: ${n_ready} of ${COUNT} requested pod(s) are usable (>= MIN_READY=${MIN_READY})." >&2
+  exit 2
+fi

@@ -25,10 +25,10 @@ context) was considered and rejected for exactly that reason.
 | File | Purpose |
 |---|---|
 | `Dockerfile` | CUDA + torch base; installs transformers/fastapi/uvicorn; bakes the model in via `download_model.py`; adds the idle watchdog. |
-| `server.py` | FastAPI app: `/health`, `/metrics`, `/classify`. Holds one model for the process lifetime. Byte-for-byte the same logic as `nli-runpod/server.py` (entailment index derived from the model's own `config.label2id`, not hardcoded) — only the default model-id strings differ. |
+| `server.py` | FastAPI app: `/health`, `/metrics`, `/classify`. Holds one model for the process lifetime. A deliberate COPY of `nli-runpod/server.py`, kept byte-identical to it apart from this image's docstring, its `NLI_MODEL`/`NLI_MAX_LENGTH` defaults and the FastAPI title. The logic is fully model-agnostic (entailment index derived from the model's own `config.label2id`, not hardcoded). **Re-derive this file FROM that one and re-apply those few substitutions; do not hand-port individual features.** Commit 52b263d did the latter and added `passes:1` to `nli-runpod` only — and because `ClassifyRequest` declared neither `passes` nor `hypothesis`, and pydantic ignores unknown fields by default, this image silently *dropped* both for weeks rather than erroring. Restored in v0.4.0. |
 | `download_model.py` | Build-time model + tokenizer download into the HF cache. |
 | `entrypoint.sh` | Log rotation, idle watchdog, `exec uvicorn`. |
-| `nli_idle_watchdog.sh` | Polls `/metrics`; stops the pod after `IDLE_MIN` idle minutes via the RunPod REST API. |
+| `nli_idle_watchdog.sh` | Polls `/metrics`. Two phases: until the first request it stops the pod only after `STARTUP_GRACE_MIN`; once a request has been served it stops after `IDLE_MIN` idle minutes. Both via the RunPod REST API. |
 | `.dockerignore` | Keeps the build context to this directory's own files. |
 
 ## GPU
@@ -79,7 +79,7 @@ docker inspect --format='{{index .RepoDigests 0}}' ghcr.io/<you>/nli-runpod-bge-
    - Expose HTTP port: `8080`
    - **Environment Variables**:
      - `RUNPOD_API_KEY` = your RunPod API key — **required** for the idle watchdog
-     - `IDLE_MIN` = `5` (optional), `POLL_SEC` = `30` (optional)
+     - `IDLE_MIN` = `5` (optional), `STARTUP_GRACE_MIN` = `60` (optional), `POLL_SEC` = `30` (optional)
 3. Launch the pod. Health-check (the proxy host maps the exposed port into the
    hostname, so no `:8080`):
    ```bash
@@ -106,7 +106,8 @@ Set in the pod template **Environment Variables**:
 | `NLI_PORT` | `8080` | Must match RunPod's exposed port. |
 | `NLI_DEVICE` | `0` (CPU `-1` if no CUDA) | GPU index. |
 | `NLI_MAX_LENGTH` | `2048` | Tokenizer truncation length. The model's own ceiling is ~8194 — this default is set to what this project's `nli.configs.bge_m3_zeroshot` actually sends, not the model's max. |
-| `IDLE_MIN` | `5` | Idle minutes before the watchdog stops the pod. `0` (or unset `RUNPOD_API_KEY`) disables it. |
+| `IDLE_MIN` | `5` | Idle minutes before the watchdog stops the pod — counted only **after** the pod has served its first request. `0` (or unset `RUNPOD_API_KEY`) disables it. |
+| `STARTUP_GRACE_MIN` | `60` | Minutes the pod may live **without ever serving a request** before stopping itself. Covers both a pod nobody sends work to and one whose model never loads. `0` disables it (the pod then runs until stopped by hand). |
 | `POLL_SEC` | `30` | Watchdog poll cadence. |
 | `LOG_DIR` | `/workspace` | Volume-mounted path for persistent logs. |
 

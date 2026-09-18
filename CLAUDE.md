@@ -77,7 +77,11 @@ originally run by hand while building this repo: `shellcheck` over every
 argument/env validation plus every `scripts/runpod/config/*.example`
 sourcing cleanly, `scripts/runpod/http-pool/*.sh` against a throwaway local
 HTTP server (both the default and an overridden path/body/metric), and an
-image-specific entrypoint check where one exists (the `nli-runpod*` images'
+two copy-parity assertions -- `docker/nli-runpod/server.py` against its derived
+`docker/nli-runpod-bge-m3/server.py`, and each canonical idle watchdog against
+its copies (nli x2, tei x3) (added after commit 52b263d edited
+one and not the other, which the bge-m3 image then silently ignored rather
+than erroring), and an image-specific entrypoint check where one exists (the `nli-runpod*` images'
 full `/health`+`/classify`+`/metrics` cycle on CPU; the `tei-runpod-<model>`
 embedding images' `/health`+`/embed`+`/metrics` cycle, built against TEI's
 `cpu-*` base; `bertopic-runpod`'s sshd + heartbeat file + baked-in script via

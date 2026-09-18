@@ -9,6 +9,38 @@ Semantic versioning, loosely:
 - **MINOR** — new feature in the image (new tunable, new bundled tool).
 - **PATCH** — bug fixes, dependency bumps, small entrypoint tweaks.
 
+## v0.4.0 — idle watchdog no longer races pod bring-up
+
+Numbered v0.4.0 rather than the next unused minor: `tei-runpod-gte-large-en-v1.5:v0.3.0` is already
+published on GHCR, and a fix published under a LOWER number than an existing
+tag is worse than no fix -- anyone resolving "the newest version" would get
+the old watchdog.
+
+- **`STARTUP_GRACE_MIN` (new, default 60).** The idle watchdog now has two
+  phases. Until the pod has been used at all -- serving a request -- the
+  `IDLE_MIN` countdown does not run; the pod is bounded by `STARTUP_GRACE_MIN`
+  instead. First use arms the idle timer permanently, after which the original
+  `IDLE_MIN` behaviour applies.
+
+  This fixes a real failure when bringing up a **pool**: the old single timer
+  started as soon as the pod was reachable, so the earliest pods were counting
+  down while the rest were still booting, while their hostnames were being
+  collected, and while a client was being pointed at them. With enough pods the
+  first ones stopped themselves before the last were usable, and raising
+  `IDLE_MIN` only widened the race rather than removing it.
+
+- **Fixed: a pod that never became usable ran forever.** When /metrics never answers,
+  the old loop advanced no counter at all, so nothing ever stopped a pod that
+  failed to come up. Now covered by the startup grace.
+
+- **Fixed: `IDLE_MIN=0` stopped the pod immediately** instead of disabling the
+  idle timer. `idle_seconds` starts at 0, so the unguarded
+  `-ge $((IDLE_MIN * 60))` was true on the very first poll.
+
+- Metrics becoming unreachable *after* the pod has served now holds the idle
+  timer rather than advancing it — a restarting server is not evidence of
+  idleness.
+
 ## v0.1.0 — new image
 
 Serves `Alibaba-NLP/gte-large-en-v1.5` (1024-dim, **8192-token** cap, CLS

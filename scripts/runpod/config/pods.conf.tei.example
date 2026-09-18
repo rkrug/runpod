@@ -65,6 +65,10 @@ POD_NAME_PREFIX="tei-specter2"
 # into the pod's environment. Auto-stops the pod after IDLE_MIN minutes of
 # no new /embed requests.
 IDLE_MIN=5
+# Minutes a pod may live without EVER being used. The idle timer above does not
+# start until first use, so bringing up a pool no longer races it; this bounds a
+# pod that is never used, or whose model never loads.
+STARTUP_GRACE_MIN=60
 POLL_SEC=30
 
 # Value for the created pod's own RUNPOD_API_KEY env var (used internally by

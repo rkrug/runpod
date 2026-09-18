@@ -42,6 +42,35 @@ object-storage credentials for the bertopic pod's reads) are set via an
 `EXTRA_ENV=("KEY=VALUE" ...)` bash array in the config file — see
 `config/pods.conf.bertopic.example` for a commented illustration.
 
+## Partial availability
+
+GPU capacity is not guaranteed, so `-n 10` can legitimately yield fewer than 10
+pods. `create_pods.sh` treats that as a normal outcome rather than an error:
+
+- A pod that fails to create **does not abort the run**. Earlier pods are
+  already running and billing; abandoning them with no inventory, no host list
+  and no teardown command was the worst possible response. The failure is
+  recorded and the loop continues, giving up only after
+  `MAX_CONSECUTIVE_CREATE_FAILURES` (default 3) in a row — capacity errors
+  repeat, so there is no point collecting ten copies of the same one.
+- Pods that came up are **always** reported, and `hosts.generated.yaml` is
+  always rewritten from the ready pods only. It is never left holding a
+  previous run's hosts, which would look current while pointing at pods that no
+  longer exist.
+- `MIN_READY` (default 1) is the floor below which the result is useless to the
+  caller.
+
+Exit status:
+
+| Code | Meaning |
+|---|---|
+| `0` | every requested pod is ready |
+| `2` | **partial** — at least `MIN_READY` ready, but fewer than requested |
+| `1` | fewer than `MIN_READY` ready, or nothing was created at all |
+
+Pods that were created but never became healthy are listed explicitly, with
+their ids, because they are still running and billing.
+
 ## Keeping the API key out of the payload
 
 By default, the local `RUNPOD_API_KEY` you export is also injected as each

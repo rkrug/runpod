@@ -172,7 +172,8 @@ scripts/runpod/http-pool/watch_gpu.sh -u https://<host> \
 | `TEI_POOLING` | `cls` | **Don't change.** This model specifies CLS pooling; mean pooling yields quietly wrong embeddings, not an error. |
 | `MODEL_PATH` | `/model` | Where the baked-in model lives. |
 | `LOG_DIR` | `/workspace` | Volume-mounted path for persistent logs. |
-| `IDLE_MIN` | `5` | Idle minutes before the watchdog stops the pod. |
+| `IDLE_MIN` | `5` | Idle minutes before the watchdog stops the pod — counted only **after** the pod has served its first request. `0` disables it. |
+| `STARTUP_GRACE_MIN` | `60` | Minutes the pod may live **without ever serving a request** before stopping itself. Covers both a pod nobody sends work to and one whose model never loads. `0` disables it. |
 | `POLL_SEC` | `30` | Watchdog poll cadence. |
 | `RUNPOD_API_KEY` | *(unset)* | **Required** for the watchdog's self-stop REST call. |
 

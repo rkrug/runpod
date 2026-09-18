@@ -46,6 +46,10 @@ POD_NAME_PREFIX="nli-runpod"
 
 # Idle watchdog settings, passed into each pod's environment.
 IDLE_MIN=5
+# Minutes a pod may live without EVER serving a request. The idle timer above
+# does not start until the first real request, so bringing up a pool no longer
+# races it; this bounds a pod that is never used, or whose model never loads.
+STARTUP_GRACE_MIN=60
 POLL_SEC=30
 
 # Value for the created pod's own RUNPOD_API_KEY env var. Leave unset to fall

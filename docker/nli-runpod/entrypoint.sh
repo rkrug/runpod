@@ -20,7 +20,7 @@ echo "[entrypoint] persisting logs to ${NLI_LOG} (prior: ${LOG_DIR}/nli-previous
 # Idle watchdog — pod-side auto-stop after IDLE_MIN idle minutes.
 if [ -n "${RUNPOD_POD_ID:-}" ]; then
     /usr/local/bin/nli_idle_watchdog.sh &
-    echo "[entrypoint] idle watchdog started (IDLE_MIN=${IDLE_MIN:-5} min)"
+    echo "[entrypoint] idle watchdog started (startup grace ${STARTUP_GRACE_MIN:-60} min until first request, then IDLE_MIN=${IDLE_MIN:-5} min)"
 fi
 
 echo "Starting NLI server"

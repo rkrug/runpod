@@ -52,8 +52,10 @@ some older tags are still on GHCR.
 
 | Image | Deploy | ⚠️ Do not deploy |
 |---|---|---|
-| `tei-specter2` | `proximity-v0.2.0` / `adhoc_query-v0.2.0` (or `v0.1.2`+) | `v0.1.0`, `v0.1.1` |
-| `bertopic-runpod` | `v0.2.0` (or `v0.1.17`+) | `v0.1.0` – `v0.1.16` |
+| `tei-specter2` (from `docker/tei-runpod/`) | `proximity-v0.4.0` / `adhoc_query-v0.4.0` | `v0.1.0`, `v0.1.1`; and `v0.1.2` – `v0.3.0` (idle watchdog races bring-up) |
+| `bertopic-runpod` | `v0.4.0` | `v0.1.0` – `v0.1.16` (topic-model changes), and `v0.1.17` – `v0.3.0` (idle watchdog races bring-up) |
+| `tei-runpod-bge-large-en-v1.5` / `-gte-large-en-v1.5` | `v0.4.0` | `v0.1.0`, `v0.3.0` (idle watchdog races bring-up) |
+| `nli-runpod` / `nli-runpod-bge-m3` | `v0.4.0` | `v0.1.0` – `v0.3.0` (idle watchdog stops a pod that has not yet served its first request — breaks pool bring-up) |
 | all others | `v0.1.0` | — |
 
 **Why those versions are faulty:** their idle watchdog stops the pod with

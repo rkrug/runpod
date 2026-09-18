@@ -171,7 +171,8 @@ Override at pod-template level:
 
 | Var | Default | Effect |
 |---|---|---|
-| `IDLE_MIN` | `5` | Minutes of no heartbeat → stop. |
+| `IDLE_MIN` | `5` | Minutes of no heartbeat → stop — counted only **after** the heartbeat has been touched by a job or session (this watchdog's own initialising touch does not count). `0` disables it. |
+| `STARTUP_GRACE_MIN` | `60` | Minutes the pod may live **without ever touching the heartbeat** before stopping itself. Covers both a pod nobody sends work to and one whose job never starts. `0` disables it. |
 | `POLL_SEC` | `30` | Watchdog check cadence. |
 | `HEARTBEAT_PATH` | `/work/.heartbeat` | File whose mtime is "last activity". |
 | `LOG_DIR` | `/work` | Where the entrypoint persists its log file. |
