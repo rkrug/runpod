@@ -7,6 +7,39 @@ Semantic versioning, loosely:
 - **MINOR** — new feature (new tunable, new endpoint field).
 - **PATCH** — bug fixes, dependency bumps.
 
+## v0.5.0 — bake a private model; provenance labels; overridable image name
+
+All three changes are ADDITIVE and backward compatible. A build that passes no
+new variables produces the same command as v0.4.0 (verified with `make -n`),
+and an existing `pods.conf` that sets no `REGISTRY_AUTH_ID` produces the same
+API payload as before.
+
+- **Optional BuildKit secret on the model download.** `--mount=type=secret,id=hf_token`
+  lets a private or gated HuggingFace repo be baked in without the token
+  reaching a layer. BuildKit defaults the mount to `required=false`, so builds
+  that pass no `--secret` are unaffected. Deliberately not a `--build-arg`:
+  those are recorded in `docker history`. Use `HF_TOKEN` as an env var rather
+  than `hf auth login`, which persists the token into `HF_HOME` — and `HF_HOME`
+  is inside the image.
+
+- **Model provenance labels.** `io.rkrug.runpod.nli.model` and
+  `.model_revision` (from the new `NLI_MODEL_REVISION` build arg) make
+  `docker inspect` authoritative about which weights are inside. A tag is a
+  human handle and drifts; this does not. Relevant now that one Dockerfile
+  produces images for several models.
+
+- **Overridable image repository name.** `NLI_IMAGE_NAME` / `NLI_BGE_M3_IMAGE_NAME`
+  in the Makefile, so a project baking its own model pushes to its OWN
+  repository instead of overwriting the shared one. GHCR visibility is
+  per-repository, so a private model requires a private repo — which a shared
+  tag namespace cannot express.
+
+- **`create_pods.sh` supports private registries.** `REGISTRY_AUTH_ID` is added
+  to the create payload as `containerRegistryAuthId` only when non-empty.
+
+Note this repository is a submodule in several projects; none of them see these
+changes until they bump their own submodule pointer.
+
 ## v0.4.0 — idle watchdog no longer races pool bring-up; `passes` parity restored
 
 - **Restored `passes` / `hypothesis` support (drift fix).** Commit 52b263d added

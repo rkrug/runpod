@@ -140,6 +140,11 @@ source "${CONFIG_FILE}"
 # Secret reference (e.g. POD_ENV_RUNPOD_API_KEY='{{ RUNPOD_SECRET_name }}')
 # so the raw key never appears in the API payload or hosts.generated.*.
 : "${POD_ENV_RUNPOD_API_KEY:=${RUNPOD_API_KEY}}"
+# Container-registry credentials id, for an IMAGE in a PRIVATE registry.
+# Register the credential once in the RunPod Console (Settings > Container
+# Registry Auth) and put its id here. Empty (the default) omits the field
+# entirely, so every existing pods.conf pulling a public image is unaffected.
+: "${REGISTRY_AUTH_ID:=}"
 
 if [[ "${POD_KIND}" != "http" && "${POD_KIND}" != "tcp" ]]; then
   echo "error: POD_KIND must be 'http' or 'tcp', got '${POD_KIND}'" >&2
@@ -198,6 +203,7 @@ for i in $(seq 1 "${COUNT}"); do
       --arg cloudType "${CLOUD_TYPE}" \
       --argjson supportPublicIp "${SUPPORT_PUBLIC_IP}" \
       --argjson env "${env_json}" \
+      --arg registryAuthId "${REGISTRY_AUTH_ID}" \
       '{
         name: $name,
         imageName: $image,
@@ -210,7 +216,11 @@ for i in $(seq 1 "${COUNT}"); do
         cloudType: $cloudType,
         supportPublicIp: $supportPublicIp,
         env: $env
-      }'
+      }
+      # Added only when set: sending an empty/null containerRegistryAuthId
+      # would be a schema change for every existing caller pulling a public
+      # image.
+      + (if $registryAuthId == "" then {} else {containerRegistryAuthId: $registryAuthId} end)'
   )"
 
   echo "  [${i}/${COUNT}] creating ${name}..." >&2

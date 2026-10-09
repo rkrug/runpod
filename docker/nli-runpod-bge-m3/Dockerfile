@@ -54,6 +54,16 @@ ENV PIP_DISABLE_PIP_VERSION_CHECK=1 \
 ARG NLI_MODEL=MoritzLaurer/bge-m3-zeroshot-v2.0-c
 ENV NLI_MODEL=${NLI_MODEL}
 
+# Provenance for whatever model actually got baked in. A tag is a human handle
+# and drifts; these make `docker inspect` authoritative about what is inside,
+# which matters once one Dockerfile produces images for several models.
+# NLI_MODEL_REVISION is free-form -- a HuggingFace commit sha, a checkpoint
+# date, whatever identifies the exact weights. Empty by default so builds that
+# do not care are unaffected.
+ARG NLI_MODEL_REVISION=
+LABEL io.rkrug.runpod.nli.model=${NLI_MODEL} \
+      io.rkrug.runpod.nli.model_revision=${NLI_MODEL_REVISION}
+
 # Server deps. torch ships in the base image. sentencepiece is needed by
 # this model's XLM-RoBERTa-based tokenizer (same package docker/nli-runpod/
 # installs for DeBERTa's own tokenizer -- unrelated model, same requirement).
@@ -73,7 +83,20 @@ WORKDIR /opt/app
 
 # Bake the model into the HF cache at build time.
 COPY docker/nli-runpod-bge-m3/download_model.py /opt/app/download_model.py
-RUN python /opt/app/download_model.py
+# The secret is OPTIONAL (BuildKit defaults to required=false), so a build that
+# passes no --secret still works for a public model -- which is every existing
+# consumer of this image. It exists so a private/gated HF repo can be baked in
+# without the token ever reaching a layer: --build-arg would be recorded in
+# `docker history`, a BuildKit secret is mounted only for this one instruction.
+#
+#   export HF_TOKEN=hf_...
+#   docker buildx build --secret id=hf_token,env=HF_TOKEN ...
+#
+# Use the env var rather than `hf auth login`: login persists the token to
+# HF_HOME (/opt/hf-cache here), which WOULD be baked into the image.
+RUN --mount=type=secret,id=hf_token \
+    HF_TOKEN="$(cat /run/secrets/hf_token 2>/dev/null || true)" \
+    python /opt/app/download_model.py
 
 COPY docker/nli-runpod-bge-m3/server.py /opt/app/server.py
 

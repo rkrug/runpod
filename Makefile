@@ -33,6 +33,20 @@ IMAGE_SOURCE_URL ?= https://github.com/rkrug/runpod
 # docker-all`, if you want to override only one of the two images' models:
 #   make docker-nli NLI_MODEL=MoritzLaurer/deberta-v3-base-zeroshot-v2.0
 NLI_MODEL ?=
+# Revision identifier for the baked model (HF commit sha, checkpoint date, ...).
+# Surfaced as an image label so `docker inspect` says exactly which weights are
+# inside, independent of how the tag was chosen. Empty = unset label.
+NLI_MODEL_REVISION ?=
+# A literal comma cannot appear inside $(if ...) -- make reads it as the
+# argument separator. Needed for --secret id=X,env=Y below.
+COMMA := ,
+# Repository name for the two NLI images, overridable so a project baking its
+# own model can push to its OWN repo rather than overwrite the shared one --
+# GHCR visibility is per-repository, so a private model needs a private repo:
+#   make docker-nli-bge-m3 NLI_BGE_M3_IMAGE_NAME=nli-runpod-bge-m3-myproject \
+#     NLI_MODEL=me/my-private-model VERSION=v0.5.0-m1
+NLI_IMAGE_NAME ?= nli-runpod
+NLI_BGE_M3_IMAGE_NAME ?= nli-runpod-bge-m3
 
 .PHONY: docker-tei-build docker-tei-push docker-tei \
         docker-bertopic-build docker-bertopic-push docker-bertopic \
@@ -72,24 +86,26 @@ docker-bertopic: docker-bertopic-build docker-bertopic-push
 docker-nli-build: ## Build the NLI RunPod image (NLI_MODEL=... to override the baked model)
 	docker buildx build --platform $(PLATFORM) \
 	    $(if $(NLI_MODEL),--build-arg NLI_MODEL=$(NLI_MODEL),) \
-	    -t $(REGISTRY)/nli-runpod:$(VERSION) \
+	    -t $(REGISTRY)/$(NLI_IMAGE_NAME):$(VERSION) \
 	    --build-arg IMAGE_SOURCE_URL=$(IMAGE_SOURCE_URL) \
 	    -f docker/nli-runpod/Dockerfile .
 
 docker-nli-push: ## Push the NLI RunPod image to the registry
-	docker push $(REGISTRY)/nli-runpod:$(VERSION)
+	docker push $(REGISTRY)/$(NLI_IMAGE_NAME):$(VERSION)
 
 docker-nli: docker-nli-build docker-nli-push
 
 docker-nli-bge-m3-build: ## Build the multilingual/long-context NLI RunPod image (NLI_MODEL=... to override the baked model)
 	docker buildx build --platform $(PLATFORM) \
 	    $(if $(NLI_MODEL),--build-arg NLI_MODEL=$(NLI_MODEL),) \
-	    -t $(REGISTRY)/nli-runpod-bge-m3:$(VERSION) \
+	    $(if $(NLI_MODEL_REVISION),--build-arg NLI_MODEL_REVISION=$(NLI_MODEL_REVISION),) \
+	    $(if $(HF_TOKEN),--secret id=hf_token$(COMMA)env=HF_TOKEN,) \
+	    -t $(REGISTRY)/$(NLI_BGE_M3_IMAGE_NAME):$(VERSION) \
 	    --build-arg IMAGE_SOURCE_URL=$(IMAGE_SOURCE_URL) \
 	    -f docker/nli-runpod-bge-m3/Dockerfile .
 
 docker-nli-bge-m3-push: ## Push the multilingual/long-context NLI RunPod image to the registry
-	docker push $(REGISTRY)/nli-runpod-bge-m3:$(VERSION)
+	docker push $(REGISTRY)/$(NLI_BGE_M3_IMAGE_NAME):$(VERSION)
 
 docker-nli-bge-m3: docker-nli-bge-m3-build docker-nli-bge-m3-push
 
